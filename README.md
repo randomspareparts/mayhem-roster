@@ -71,3 +71,34 @@ The Requirements tab now supports three distinct concepts:
 **Rollout caution:** The UI code is deployed before the SQL migration. It can read the legacy requirements while awaiting migration, but creation/editing of the new catalog requires the SQL migration. Do not import actual children's data until comprehensive authorization and backups are tested. The annual-rule snapshot means a later catalog rename does not retroactively rename prior seasons. The app currently provides creation of definitions and annual assignments; edit/retire controls and richer historical audits are future work.
 
 **Legacy note:** The old `requirements` table remains in place for migration compatibility and should not be manually edited after transitioning. Do not delete it until all references have been carefully migrated and tested.
+
+
+## Permanent teams and school-year enrollment (November 22, 2026)
+
+The application now uses a two-level team identity:
+- **`team_catalog`** — one permanent team identity (organization, program, FIRST registration number as text, current name, active flag).
+- **`teams`** — existing **season-specific team records** with historical name/number/program snapshots and a new `catalog_team_id` foreign key. This avoids rewriting existing enrollment, dues, FIRST registration, and requirement relationships. The physical name `teams` refers to season teams for backward compatibility.
+- **`team_enrollments`** — existing student ↔ season-team enrollment with independent annual registration and dues.
+
+A number is unique **within one organization and program**; Team 8724 across different years is the same permanent team. Numberless historical teams are deliberately NOT automatically merged across seasons because their identity cannot be reliably inferred from a name alone.
+
+### Activate this migration
+1. **Only after the Requirements migration succeeded** (the user previously tested the reusable catalog).
+2. In Supabase SQL Editor, create a **new SQL query**.
+3. Copy the full [permanent teams migration](supabase/migrations/20261122_permanent_teams.sql) into that editor and **Run**.
+4. The last SELECT should return `permanent_teams`, `season_team_records`, `unlinked_season_teams` (must be **0**), `preserved_enrollments`, and `preserved_team_requirement_rules`. Save these counts for reconciliation.
+5. Refresh GitHub Pages. Under **Teams**, you should see *Teams participating in selected season* and *Permanent team catalog*. In the catalog, FRC Team 8724 should appear once even if it had multiple season rows before migration.
+6. Using fictional data, select a different season, **Add existing team**, and choose 8724 (do not create a duplicate). Enroll a returning fictional student. In their **Manage** view, verify both seasons appear in *Participation history*.
+7. Verify that annual forms, dues and FIRST registration remain separate and prior-year completion data is unchanged. Check RLS before importing real data.
+
+**Safe fallback:** The new application detects whether `team_catalog` exists and temporarily supports the old season-team UI until the migration is executed. The SQL migration is transaction-wrapped and rerunnable. It keeps the existing `teams` rows, UUIDs, and foreign keys, and does not delete or move any real student records.
+
+### Year-to-year workflow
+- To enroll a permanent team in an **existing** season: Teams → **Add existing team**. A team can be added only once per season.
+- To start a new year: **+ Season**, select an earlier season, check which teams will participate, and optionally carry over students as **pending**. Requirements are copied as new annual rules; forms/dues/FIRST completion are **not** copied.
+- To change the current team's **permanent name or number**: Teams → permanent catalog → Edit.
+- To change the **name used in one season**: Teams → selected season → Edit season.
+- To review a student's history: Students → Manage → Participation history.
+- Students may appear on different teams, or on multiple teams in one season, with a separate enrollment per team.
+
+**Limitations:** The Create Team operation and season rollover still involve multiple API requests, not one atomic database transaction. In a partial error, review the catalog or new season before retrying. Participation history reflects the recorded enrollment statuses (active/pending/withdrawn); additional completed-season and attendance classifications are not yet implemented. Do not import the real Mayhem roster until security/backup tests and student-household support are complete.
