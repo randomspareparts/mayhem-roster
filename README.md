@@ -9,7 +9,7 @@ Mobile-friendly GitHub Pages app backed by Supabase authentication and Postgres.
 - Track forms, payment totals/waivers, and FIRST registration per enrollment
 - Filter by season/team; view counts and outstanding items
 
-Not yet built: parent/guardian editor, Excel import/export, attendance, notifications, audit trail, team-limited coach access. Current coaches/viewers have organization-wide read access.
+Not yet built: Excel import/export, attendance, notifications, audit trail, team-limited coach access. Student, household, and guardian editors are available after the Phase 3 migration. Current coaches/viewers have organization-wide read access.
 
 ## Deployment
 GitHub Settings > Pages > Deploy from a branch > main / (root).
@@ -20,7 +20,7 @@ Use only your Supabase publishable (or legacy anon) key with the Supabase projec
 
 ## REQUIRED before entering actual student data
 1. Run [security-check.sql](supabase/security-check.sql) using Supabase SQL Editor.
-2. Confirm all 14 roster tables have rowsecurity = true.
+2. Confirm all roster and family tables have rowsecurity = true.
 3. Confirm anon_can_read_* values are false.
 4. Confirm the four simulated unauthorized-user counts are zero.
 5. Verify the administrator can still read the application and an actual account without organization membership cannot read records.
@@ -102,3 +102,63 @@ A number is unique **within one organization and program**; Team 8724 across dif
 - Students may appear on different teams, or on multiple teams in one season, with a separate enrollment per team.
 
 **Limitations:** The Create Team operation and season rollover still involve multiple API requests, not one atomic database transaction. In a partial error, review the catalog or new season before retrying. Participation history reflects the recorded enrollment statuses (active/pending/withdrawn); additional completed-season and attendance classifications are not yet implemented. Do not import the real Mayhem roster until security/backup tests and student-household support are complete.
+
+
+## Phase 3: Student contacts, households and guardians (2026-11-22)
+
+**Deployment:** The application has a Families tab (administrator-only). The tab and
+student contact controls activate after running [20261122_student_households.sql](supabase/migrations/20261122_student_households.sql).
+The migration adds six **admin-only** private contact tables and does **not** change
+or delete existing student records or the legacy household/guardian tables.
+
+**Why separate tables?** The existing legacy `households`, `guardians`,
+`household_guardians`, and `student_households` definitions weren't retained
+in the repository. Rather than gamble on unknown required columns, this
+migration creates explicit, documented `family_*` and relationship tables. The
+legacy tables are retained for future reconciliation. Do not import data into
+both systems.
+
+| Table | Purpose |
+|---|---|
+| `student_contact_profiles` | Optional DOB, student email, mobile, Mayhem email (one per permanent student) |
+| `family_households` | Household label and physical mailing address |
+| `family_guardians` | Reusable permanent guardian contact record |
+| `student_household_links` | Multiple homes per student; at most one primary |
+| `household_guardian_links` | Multiple guardians per household, and vice versa |
+| `student_guardian_links` | Guardian-to-student role, primary/emergency contact flags |
+
+### Activation and verification
+1. Open the SQL script above in GitHub using **Raw** and copy it in full.
+2. Create a **new query** in your Supabase project's SQL Editor and run it.
+3. Verify all **six rows** in the resulting security-check table show
+   `rls_enabled = true` and `anon_can_select = false`.
+4. Refresh the GitHub Pages application. **Families** should appear for
+   an authenticated organization administrator.
+5. With fictional test records only:
+   - Families → **Add household** (enter a label and test address).
+   - Families → **Add guardian** (enter a fictional guardian name/contact).
+   - Open a student → **Manage** → **Edit contact**; save a fictional date of birth and email.
+   - From that student, **Link household** and **Link guardian**.
+   - Add another fictional student, link them to the *same* guardian and household.
+   - Add a *second* household to the first student. Reopen their Manage screen:
+     both homes should appear.
+   - Refresh and verify data persists and both students share the one guardian
+     record rather than duplicating a person.
+   - Test **Unlink**, which removes a relationship without deleting a person or household.
+6. Run the expanded [security-check.sql](supabase/security-check.sql) and
+   verify the anon access tests, missing-membership simulation, and admin-only
+   family policies. Also verify a **real** signed-in non-admin account cannot
+   access family data in Supabase (not just that the UI hides the tab).
+7. Before importing children's real personal information, establish a tested
+   backup and restoration procedure and complete the security review.
+
+**Access model:** During this early-access phase, only organization
+administrators are permitted to read or modify family PII through the
+new table RLS policies. The existing broader roster visibility model has
+not been changed. Never put student records, private contact details,
+or the Excel source roster in this public GitHub repository.
+
+**Next phase:** The source for FRC Team 8724 is
+`Mayhem_2027_Roster_Updated(1).xlsx`. Build a browser-local import preview,
+explicit row-matching and conflict-review workflow before uploading any real
+student data. Do not infer that prospects or inactive entries are participating.
