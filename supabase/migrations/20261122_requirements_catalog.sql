@@ -1,4 +1,4 @@
--- Mayhem Roster Manager: configurable requirements migration v1
+-- Mayhem Roster Manager: configurable requirements migration v2 (scope collision fixed)
 -- Run once in Supabase SQL Editor BEFORE enabling the new requirements UI.
 -- Additive and repeatable; leaves legacy public.requirements in place.
 -- No student data is deleted. The entire migration runs in one transaction.
@@ -37,8 +37,7 @@ create table if not exists public.season_requirements (
   organization_id uuid not null references public.organizations(id),
   definition_id uuid not null,
   season_id uuid not null,
-  scope text not null default 'all'
-    check (scope in ('all','program','team')),
+  scope text not null default 'all',
   program text,
   team_id uuid,
   display_name text not null,
@@ -54,7 +53,7 @@ create table if not exists public.season_requirements (
     references public.requirement_definitions(id,organization_id),
   foreign key (season_id,organization_id)
     references public.seasons(id,organization_id),
-  constraint season_requirements_scope_fields_check check (
+  constraint season_requirements_rule_validity_v2_check check (
     (scope='all' and program is null and team_id is null)
     or (scope='program' and program is not null and team_id is null)
     or (scope='team' and team_id is not null and program is null)
