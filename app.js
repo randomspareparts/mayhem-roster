@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={api:null,user:null,org:null,role:null,season:null,seasons:[],teams:[],students:[],enrollments:[],requirements:[],definitions:[],seasonRules:[],requirementsMode:false,studentRequirements:[],dues:[],first:[],tab:'overview'};
+const state={api:null,user:null,org:null,role:null,season:null,seasons:[],teams:[],teamCatalog:[],teamMode:false,students:[],enrollments:[],requirements:[],definitions:[],seasonRules:[],requirementsMode:false,studentRequirements:[],dues:[],first:[],tab:'overview'};
 function message(text='',success=false){$('banner').replaceChildren();if(!text)return;const p=document.createElement('p');p.className='alert'+(success?' success':'');p.textContent=text;$('banner').appendChild(p)}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function option(value,label,selected=false){return '<option value="'+escapeHtml(value)+'"'+(selected?' selected':'')+'>'+escapeHtml(label)+'</option>'}
@@ -9,6 +9,11 @@ function requireAdmin(){if(state.role!=='admin')throw Error('Only organization a
 function check(r){if(r.error)throw r.error;return r.data}
 function setTab(tab){state.tab=tab;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('hidden',x.id!=='tab-'+tab));document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));render()}
 function activeTeams(){return state.teams.filter(t=>t.season_id===state.season)}
+function teamCatalogRecord(t){return state.teamCatalog.find(c=>c.id===t?.catalog_team_id)}
+function teamLabel(t){return (t.team_number?t.team_number+' · ':'')+t.name}
+function teamHistory(t){return state.teams.filter(x=>x.catalog_team_id&&x.catalog_team_id===t.catalog_team_id)
+ .sort((a,b)=>(state.seasons.find(x=>x.id===b.season_id)?.name||'').localeCompare(state.seasons.find(x=>x.id===a.season_id)?.name||''))}
+
 function activeEnrollments(){const ids=new Set(activeTeams().map(t=>t.id));return state.enrollments.filter(e=>ids.has(e.team_id)&&e.status!=='withdrawn')}
 function reqsFor(team){
  if(!state.requirementsMode) return state.requirements.filter(r=>r.season_id===state.season&&(!r.program||r.program===team.program));
@@ -30,7 +35,15 @@ function matchedCompletion(e,r) {
 
 function enrollmentStatus(e){const team=state.teams.find(t=>t.id===e.team_id);if(!team)return {forms:'—',dues:'—',first:'—',outstanding:0};const req=reqsFor(team).filter(r=>r.is_required),results=req.map(r=>matchedCompletion(e,r)),complete=results.filter(sr=>sr&&['received','waived','not_applicable'].includes(sr.status)).length;const dues=state.dues.find(d=>d.enrollment_id===e.id),first=state.first.find(f=>f.enrollment_id===e.id);const owed=dues?Math.max(0,Number(dues.amount_due)-Number(dues.amount_paid)-Number(dues.amount_waived)):null;const firstOk=first&&['complete','not_required'].includes(first.status);return {forms:complete+'/'+req.length,dues:owed===null?'Not set':owed===0?'Paid/waived':'$'+owed.toFixed(2)+' due',first:first?first.status.replaceAll('_',' '):'Not set',outstanding:req.length-complete+(owed!==null&&owed>0?1:0)+(first&&!firstOk?1:0)}}
 function name(s){return (s.preferred_name||s.first_name)+' '+s.last_name}
-function render(){if(!state.org)return;const aTeams=activeTeams(),aEnroll=activeEnrollments(),selectedStudentIds=new Set(aEnroll.map(e=>e.student_id)),aStudents=state.students.filter(s=>selectedStudentIds.has(s.id));$('membership-label').textContent=state.org.name+' · '+state.role+' access';document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',state.role!=='admin'));$('count-students').textContent=aStudents.length;$('count-teams').textContent=aTeams.length;$('count-enrollments').textContent=aEnroll.length;$('count-not-ready').textContent=aEnroll.reduce((sum,e)=>sum+enrollmentStatus(e).outstanding,0);$('overview-info').textContent=aTeams.length?aTeams.map(t=>t.name+' ('+aEnroll.filter(e=>e.team_id===t.id).length+' students)').join(' · '):'No teams yet. Add your first team in the Teams tab.';const selection=$('team-filter').value;$('team-filter').innerHTML=option('','All teams')+aTeams.map(t=>option(t.id,t.name,t.id===selection)).join('');$('team-table').innerHTML=aTeams.map(t=>'<tr><td>'+escapeHtml(t.name)+'</td><td>'+escapeHtml(t.program)+'</td><td>'+escapeHtml(t.team_number||'—')+'</td><td>'+aEnroll.filter(e=>e.team_id===t.id).length+'</td><td><button class="small secondary admin-only" data-action="edit-team" data-id="'+t.id+'">Edit</button></td></tr>').join('');$('team-empty').textContent=aTeams.length?'':'No teams for this season.';const search=$('student-search').value.toLowerCase(),teamFilter=$('team-filter').value;const matching=state.students.filter(s=>{const enroll=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));return enroll.length&&name(s).toLowerCase().includes(search)});$('student-table').innerHTML=matching.map(s=>{const enr=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));const status=enr.map(enrollmentStatus);return '<tr><td>'+escapeHtml(name(s))+'</td><td>'+escapeHtml(enr.map(e=>state.teams.find(t=>t.id===e.team_id)?.name||'').join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.forms).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.dues).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.first).join(', '))+'</td><td><button class="small secondary" data-action="student-detail" data-id="'+s.id+'">Manage</button></td></tr>'}).join('');$('student-empty').textContent=matching.length?'':'No students match this season and team filter.';const rs=state.requirementsMode?state.seasonRules.filter(r=>r.season_id===state.season):state.requirements.filter(r=>r.season_id===state.season);
+function render(){if(!state.org)return;const aTeams=activeTeams(),aEnroll=activeEnrollments(),selectedStudentIds=new Set(aEnroll.map(e=>e.student_id)),aStudents=state.students.filter(s=>selectedStudentIds.has(s.id));$('membership-label').textContent=state.org.name+' · '+state.role+' access';document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',state.role!=='admin'));$('count-students').textContent=aStudents.length;$('count-teams').textContent=aTeams.length;$('count-enrollments').textContent=aEnroll.length;$('count-not-ready').textContent=aEnroll.reduce((sum,e)=>sum+enrollmentStatus(e).outstanding,0);$('overview-info').textContent=aTeams.length?aTeams.map(t=>t.name+' ('+aEnroll.filter(e=>e.team_id===t.id).length+' students)').join(' · '):'No teams yet. Add your first team in the Teams tab.';const selection=$('team-filter').value;$('team-filter').innerHTML=option('','All teams')+aTeams.map(t=>option(t.id,t.name,t.id===selection)).join('');$('team-table').innerHTML=aTeams.map(t=>'<tr><td>'+escapeHtml(t.name)+'</td><td>'+escapeHtml(t.program)+'</td><td>'+escapeHtml(t.team_number||'—')+'</td><td>'+aEnroll.filter(e=>e.team_id===t.id).length+'</td><td><button class="small secondary admin-only" data-action="edit-team" data-id="'+t.id+'">Edit season</button></td></tr>').join('');$('team-empty').textContent=aTeams.length?'':'No teams for this season. Add an existing team from the permanent catalog or create a new one.';
+$('team-catalog-section').classList.toggle('hidden',!state.teamMode);
+$('team-add-existing').classList.toggle('hidden',!state.teamMode);
+$('team-catalog-table').innerHTML=state.teamCatalog.map(c=>{
+ const seasons=state.teams.filter(t=>t.catalog_team_id===c.id).map(t=>state.seasons.find(x=>x.id===t.season_id)?.name).filter(Boolean).sort();
+ return '<tr><td>'+escapeHtml(c.name)+'</td><td>'+escapeHtml(c.program)+'</td><td>'+escapeHtml(c.team_number||'—')+'</td><td>'+escapeHtml(seasons.join(', ')||'Not assigned')+'</td><td><button class="small secondary admin-only" data-action="edit-catalog-team" data-id="'+c.id+'">Edit</button></td></tr>';
+}).join('');
+$('team-catalog-empty').textContent=state.teamMode&&!state.teamCatalog.length?'No permanent teams yet. Create your first team above.':'';
+const search=$('student-search').value.toLowerCase(),teamFilter=$('team-filter').value;const matching=state.students.filter(s=>{const enroll=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));return enroll.length&&name(s).toLowerCase().includes(search)});$('student-table').innerHTML=matching.map(s=>{const enr=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));const status=enr.map(enrollmentStatus);return '<tr><td>'+escapeHtml(name(s))+'</td><td>'+escapeHtml(enr.map(e=>state.teams.find(t=>t.id===e.team_id)?.name||'').join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.forms).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.dues).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.first).join(', '))+'</td><td><button class="small secondary" data-action="student-detail" data-id="'+s.id+'">Manage</button></td></tr>'}).join('');$('student-empty').textContent=matching.length?'':'No students match this season and team filter.';const rs=state.requirementsMode?state.seasonRules.filter(r=>r.season_id===state.season):state.requirements.filter(r=>r.season_id===state.season);
 $('requirements-mode').textContent=state.requirementsMode?'Catalog and annual assignments enabled.':'Migration pending. Follow the README to activate the catalog.';
 $('requirements-actions').classList.toggle('hidden',!state.requirementsMode);
 $('requirement-table').innerHTML=rs.map(r=>'<tr><td>'+escapeHtml(r.display_name||r.name)+'</td><td>'+escapeHtml(r.requirement_type)+'</td><td>'+escapeHtml(state.requirementsMode?(r.scope==='all'?'All teams':r.scope==='program'?r.program:state.teams.find(t=>t.id===r.team_id)?.name||'Team'):r.program||'All programs')+'</td><td>'+(r.is_required?'Yes':'No')+'</td><td>'+escapeHtml(state.requirementsMode?(r.is_active?'Active':'Archived'):'Legacy')+'</td><td>'+(state.requirementsMode?'<button class="small secondary admin-only" data-action="edit-requirement" data-id="'+r.id+'">Edit assignment</button>':'')+'</td></tr>').join('');
@@ -50,13 +63,113 @@ if(!defs.error&&!rules.error){
  if(unexpected)throw unexpected;
  state.definitions=[];state.seasonRules=[];state.requirementsMode=false;
 }
+const catalog=await state.api.from('team_catalog').select('*').eq('organization_id',org).order('name').limit(1000);
+if(!catalog.error){state.teamCatalog=catalog.data||[];state.teamMode=true;}
+else if(['PGRST205','42P01','PGRST204'].includes(catalog.error.code)){
+ state.teamCatalog=[];state.teamMode=false;
+}else throw catalog.error;
 const previous=state.season;state.season=state.seasons.some(s=>s.id===previous)?previous:(state.seasons.find(s=>s.is_active)||state.seasons[0])?.id||null;$('season-filter').innerHTML=state.seasons.map(s=>option(s.id,s.name,s.id===state.season)).join('');render()}
 async function begin(){message();try{const {data:{user},error}=await state.api.auth.getUser();if(error)throw error;if(!user){display('login');return}state.user=user;const memberships=check(await state.api.from('memberships').select('organization_id,role').eq('user_id',user.id));if(!memberships.length)throw Error('Your account has no organization membership. Ask an administrator to grant access.');const membership=memberships[0];const orgs=check(await state.api.from('organizations').select('id,name').eq('id',membership.organization_id).single());state.org=orgs;state.role=membership.role;$('who').textContent=user.email;display('workspace');await fetchData()}catch(err){display('login');message(err.message)}}
 function modal(title,html){$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal').classList.remove('hidden')}
 function closeModal(){$('modal').classList.add('hidden');$('modal-content').replaceChildren()}
 function actions(){return '<div class="modal-actions"><button type="button" class="secondary" data-action="close-modal">Cancel</button><button type="submit">Save</button></div>'}
 function field(label,id,value='',required=false){return '<label>'+escapeHtml(label)+'<input name="'+id+'" value="'+escapeHtml(value)+'"'+(required?' required':'')+'></label>'}
-function teamForm(id){requireAdmin();const t=state.teams.find(x=>x.id===id);if(t&&t.season_id!==state.season)throw Error('Team belongs to another season.');const programs=['FRC','FTC','FLL Challenge','FLL Explore','Other'];const html='<form id="team-form"><div class="form-grid">'+field('Team name','name',t?.name,true)+field('Team number (optional)','team_number',t?.team_number)+'<label>Program<select name="program">'+programs.map(p=>option(p,p,p===t?.program)).join('')+'</select></label><label>Status<select name="is_active">'+option('true','Active',t?.is_active!==false)+option('false','Inactive',t?.is_active===false)+'</select></label></div>'+actions()+'</form>';modal(t?'Edit team':'Add team',html);$('team-form').onsubmit=e=>saveForm(e,async f=>{const payload={organization_id:state.org.id,season_id:state.season,name:f.get('name').trim(),team_number:f.get('team_number').trim()||null,program:f.get('program'),is_active:f.get('is_active')==='true'};check(await (t?state.api.from('teams').update(payload).eq('id',id):state.api.from('teams').insert(payload)))})}
+function catalogTeamForm(id){
+ requireAdmin();if(!state.teamMode)throw Error('Apply the permanent team database migration first.');
+ const c=state.teamCatalog.find(x=>x.id===id);
+ if(!c)throw Error('Permanent team not found.');
+ const hasHistory=state.teams.some(x=>x.catalog_team_id===c.id);
+ const html='<p class="muted">This information identifies the team across seasons. Change a season-specific name through Edit season instead.</p>'
+ +'<form id="catalog-team-form"><div class="form-grid">'
+ +field('Current team name','name',c.name,true)
+ +field('Registration number','team_number',c.team_number)
+ +'<label>Program<select name="program" '+(hasHistory?'disabled':'')+'>'+['FRC','FTC','FLL Challenge','FLL Explore','Other'].map(x=>option(x,x,x===c.program)).join('')+'</select></label>'
+ +'<label>Catalog status<select name="is_active">'+option('true','Active',c.is_active)+option('false','Inactive',!c.is_active)+'</select></label>'
+ +'</div>'+(hasHistory?'<p class="muted note">Program is locked to preserve the team identity and historical reports. The number can be corrected, and past season snapshots remain unchanged.</p>':'')
+ +actions()+'</form>';
+ modal('Edit permanent team',html);
+ $('catalog-team-form').onsubmit=e=>saveForm(e,async f=>{
+  const nm=f.get('name').trim(),number=f.get('team_number').trim()||null;
+  if(!nm)throw Error('Enter a team name.');
+  check(await state.api.from('team_catalog').update({
+   name:nm,team_number:number,program:hasHistory?c.program:f.get('program'),
+   is_active:f.get('is_active')==='true'
+  }).eq('id',c.id).eq('organization_id',state.org.id));
+ });
+}
+function addExistingTeamForm(){
+ requireAdmin();if(!state.teamMode)throw Error('Apply the permanent team migration first.');
+ const assigned=new Set(activeTeams().map(t=>t.catalog_team_id));
+ const available=state.teamCatalog.filter(c=>c.is_active&&!assigned.has(c.id));
+ if(!available.length)throw Error('All active catalog teams are already in this season. Create a new permanent team if needed.');
+ const html='<p class="muted">Choose a permanent team to participate this season. Its prior years remain unchanged.</p>'
+ +'<form id="existing-team-form"><label>Permanent team<select name="catalog_id">'
+ +available.map(c=>option(c.id,(c.team_number?c.team_number+' · ':'')+c.name+' ('+c.program+')')).join('')
+ +'</select></label><label>Season team name (optional override)<input name="season_name" placeholder="Leave blank to use the current name"></label>'
+ +actions()+'</form>';
+ modal('Add existing team to season',html);
+ $('existing-team-form').onsubmit=e=>saveForm(e,async f=>{
+  const c=available.find(x=>x.id===f.get('catalog_id'));
+  if(!c)throw Error('Select a team not yet in this season.');
+  const n=f.get('season_name').trim()||c.name;
+  check(await state.api.from('teams').insert({
+   organization_id:state.org.id,season_id:state.season,catalog_team_id:c.id,
+   name:n,program:c.program,team_number:c.team_number,is_active:true
+  }));
+ });
+}
+function teamForm(id){
+ requireAdmin();
+ const t=state.teams.find(x=>x.id===id);
+ if(t&&t.season_id!==state.season)throw Error('Team belongs to another season.');
+ const catalog=t?teamCatalogRecord(t):null;
+ const programs=['FRC','FTC','FLL Challenge','FLL Explore','Other'];
+ let html;
+ if(state.teamMode&&t){
+  html='<p class="muted">Edit the season-specific team name and participation. To change permanent registration information, edit the team in the catalog below.</p>'
+   +'<form id="team-form"><div class="form-grid">'
+   +field('Team name for this season','name',t.name,true)
+   +'<label>Status<select name="is_active">'+option('true','Active',t.is_active)+option('false','Inactive',!t.is_active)+'</select></label>'
+   +'</div><p class="muted note">Permanent identity: '+escapeHtml((catalog?.team_number||t.team_number||'Unnumbered')+' · '+(catalog?.program||t.program))+'</p>'
+   +actions()+'</form>';
+ }else{
+  html='<p class="muted">'+(state.teamMode?'Create a new permanent team and assign it to the selected season. To reuse a team from another season, choose Add existing team.':'Create a season team.')+'</p>'
+  +'<form id="team-form"><div class="form-grid">'
+  +field('Team name','name',t?.name||'',true)
+  +field('Team number (optional)','team_number',t?.team_number||'')
+  +'<label>Program<select name="program">'+programs.map(p=>option(p,p,p===t?.program)).join('')+'</select></label>'
+  +'<label>Status<select name="is_active">'+option('true','Active',t?.is_active!==false)+option('false','Inactive',t?.is_active===false)+'</select></label>'
+  +'</div>'+actions()+'</form>';
+ }
+ modal(t?'Edit team for season':'Create team',html);
+ $('team-form').onsubmit=e=>saveForm(e,async f=>{
+  const teamName=f.get('name').trim(),isActive=f.get('is_active')==='true';
+  if(!teamName)throw Error('Enter a team name.');
+  if(state.teamMode&&t){
+   check(await state.api.from('teams').update({name:teamName,is_active:isActive})
+     .eq('id',t.id).eq('organization_id',state.org.id));
+  }else if(state.teamMode){
+   const program=f.get('program'),number=f.get('team_number').trim()||null;
+   if(number&&state.teamCatalog.some(c=>c.program===program&&
+    c.team_number?.trim().toLowerCase()===number.toLowerCase()))
+      throw Error('A permanent team with that number and program already exists. Use Add existing team instead.');
+   // A two-request operation: if the second step fails, the permanent catalog entry stays available.
+   const created=check(await state.api.from('team_catalog').insert({
+    organization_id:state.org.id,program,team_number:number,name:teamName,is_active:true
+   }).select('id').single());
+   check(await state.api.from('teams').insert({
+    organization_id:state.org.id,season_id:state.season,catalog_team_id:created.id,
+    name:teamName,program,team_number:number,is_active:isActive
+   }));
+  }else{
+   const payload={organization_id:state.org.id,season_id:state.season,
+    name:teamName,team_number:f.get('team_number').trim()||null,
+    program:f.get('program'),is_active:isActive};
+   check(await (t?state.api.from('teams').update(payload).eq('id',id):
+    state.api.from('teams').insert(payload)));
+  }
+ });
+}
 function studentForm(id){requireAdmin();const s=state.students.find(x=>x.id===id), available=activeTeams();if(!s&&!available.length)throw Error('Create a team before adding students.');const teamField=s?'':'<label class="wide">Initial team<select name="initial_team">'+available.map(t=>option(t.id,t.name)).join('')+'</select></label>';const html='<form id="student-form"><div class="form-grid">'+field('First name','first_name',s?.first_name,true)+field('Last name','last_name',s?.last_name,true)+field('Preferred name (optional)','preferred_name',s?.preferred_name)+'<label>Status<select name="is_active">'+option('true','Active',s?.is_active!==false)+option('false','Inactive',s?.is_active===false)+'</select></label>'+teamField+'</div>'+actions()+'</form>';modal(s?'Edit student':'Add student',html);$('student-form').onsubmit=e=>saveForm(e,async f=>{const payload={organization_id:state.org.id,first_name:f.get('first_name').trim(),last_name:f.get('last_name').trim(),preferred_name:f.get('preferred_name').trim()||null,is_active:f.get('is_active')==='true'};if(s){check(await state.api.from('students').update(payload).eq('id',id))}else{const created=check(await state.api.from('students').insert(payload).select('id').single());check(await state.api.from('team_enrollments').insert({organization_id:state.org.id,student_id:created.id,team_id:f.get('initial_team'),status:'active'}))}})}
 function seasonForm(){
  requireAdmin();
