@@ -166,11 +166,12 @@
    if(!rule||(!yes(cell)&&!no(cell)))continue;
    const found=state.studentRequirements.some(x=>x.enrollment_id===enrollmentId&&x.season_requirement_id===rule.id);
    if(found)continue;
-   check(await state.api.from('student_requirements').insert({
+   const saved=check(await state.api.from('student_requirements').insert({
     organization_id:state.org.id,enrollment_id:enrollmentId,
     season_requirement_id:rule.id,status:yes(cell)?'received':'pending',
     completed_at:yes(cell)?new Date().toISOString():null
-   }));
+   }).select('*').single());
+   state.studentRequirements.push(saved);
   }
  }
  async function saveOne(row,choice,team){
@@ -196,11 +197,12 @@
   const currentContact=state.studentContacts.find(c=>c.student_id===student.id);
   if(!currentContact){
    const email=record.email||null;
-   check(await state.api.from('student_contact_profiles').insert({
+   const savedContact=check(await state.api.from('student_contact_profiles').insert({
     organization_id:state.org.id,student_id:student.id,birth_date:dob,
     email,mobile_phone:record.mobile||null,
     mayhem_email:email&&email.toLowerCase().endsWith('@mayhemrobotics.org')?email:null
-   }));
+   }).select('*').single());
+   state.studentContacts.push(savedContact);
   }
   let enrollment=state.enrollments.find(e=>e.student_id===student.id&&e.team_id===team.id);
   const isConfirmed=key(record.category)==='confirmed member';
@@ -214,11 +216,12 @@
   if(isConfirmed&&enrollment){
    const status=record.first;
    if((yes(status)||no(status))&&!state.first.some(x=>x.enrollment_id===enrollment.id)){
-    check(await state.api.from('first_registrations').insert({
+    const saved=check(await state.api.from('first_registrations').insert({
      organization_id:state.org.id,enrollment_id:enrollment.id,
      status:yes(status)?'complete':'not_started',
      verified_at:yes(status)?new Date().toISOString():null
-    }));
+    }).select('*').single());
+    state.first.push(saved);
    }
    await applyRequirements(enrollment.id,team,record);
   }
@@ -276,10 +279,12 @@
   if(state.role!=='admin'||!state.familyMode)throw Error('Administrator and private contacts access required.');
   const season=state.seasons.find(s=>s.id===state.season);
   const teamIds=new Set(activeTeams().map(t=>t.id));
+  const currentTeams=activeTeams();
+  const ruleNames=[...new Set(currentTeams.flatMap(t=>reqsFor(t).map(r=>r.name||r.display_name)))].sort();
   const rows=[['Season','Team','Team number','Student','Student DOB','Student email',
    'Student mobile','Enrollment status','Guardians','Guardian email(s)','Guardian phone(s)',
    'Households','Mailing address(es)','FIRST registration','Forms complete',
-   'Dues due','Dues paid','Dues waived']];
+   'Dues due','Dues paid','Dues waived',...ruleNames.map(n=>'Form: '+n)]];
   for(const e of state.enrollments.filter(x=>teamIds.has(x.team_id))){
    const t=state.teams.find(x=>x.id===e.team_id),st=state.students.find(x=>x.id===e.student_id);
    if(!st||!t)continue;
@@ -293,7 +298,11 @@
     guardians.map(guardianName).join(' ; '),guardians.map(x=>x.email||'').join(' ; '),
     guardians.map(x=>x.phone||'').join(' ; '),houses.map(x=>x.display_name).join(' ; '),
     houses.map(x=>[x.address_line1,x.address_line2,x.city,x.state_region,x.postal_code].filter(Boolean).join(', ')).join(' ; '),
-    first?.status||'',enrollmentStatus(e).forms,dues?.amount_due??'',dues?.amount_paid??'',dues?.amount_waived??'']);
+    first?.status||'',enrollmentStatus(e).forms,dues?.amount_due??'',dues?.amount_paid??'',dues?.amount_waived??'',
+    ...ruleNames.map(ruleName=>{
+      const rule=reqsFor(t).find(x=>(x.name||x.display_name)===ruleName);
+      return rule?matchedCompletion(e,rule)?.status||'pending':'Not applicable';
+    })]);
   }
   const csv='\uFEFF'+rows.map(a=>a.map(csvValue).join(',')).join('\r\n');
   const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
