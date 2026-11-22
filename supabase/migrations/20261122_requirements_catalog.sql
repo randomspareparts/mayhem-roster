@@ -18,6 +18,18 @@ create table if not exists public.requirement_definitions (
   unique (id, organization_id)
 );
 
+-- Composite organization/season foreign key needs a unique parent key.
+do $migration$ begin
+ if not exists (
+  select 1 from pg_constraint
+  where conname='seasons_id_org_unique'
+    and conrelid='public.seasons'::regclass
+ ) then
+  alter table public.seasons
+    add constraint seasons_id_org_unique unique (id,organization_id);
+ end if;
+end $migration$;
+
 -- Each rule is a snapshot of an annual requirement's name and type.
 -- A rule applies to all teams, one program, or one team in the season.
 create table if not exists public.season_requirements (
@@ -51,17 +63,17 @@ create table if not exists public.season_requirements (
 
 -- Team is a season-specific row in the current schema.
 -- This FK will be adjusted with the future permanent-team migration.
-do $ begin
+do $migration$ begin
  if not exists (select 1 from pg_constraint where conname='teams_id_org_season_unique' and conrelid='public.teams'::regclass) then
    alter table public.teams add constraint teams_id_org_season_unique unique (id,organization_id,season_id);
  end if;
-end $;
-do $ begin
+end $migration$;
+do $migration$ begin
  if not exists (select 1 from pg_constraint where conname='season_requirements_team_same_season_fk' and conrelid='public.season_requirements'::regclass) then
   alter table public.season_requirements add constraint season_requirements_team_same_season_fk
     foreign key (team_id,organization_id,season_id) references public.teams(id,organization_id,season_id);
  end if;
-end $;
+end $migration$;
 
 -- Prevent duplicate annual rules, including null scope dimensions.
 create unique index if not exists season_requirements_unique_scope
@@ -102,12 +114,12 @@ on conflict (legacy_requirement_id) do nothing;
 alter table public.student_requirements
   add column if not exists season_requirement_id uuid;
 
-do $ begin
+do $migration$ begin
  if not exists (select 1 from pg_constraint where conname='student_req_season_fk' and conrelid='public.student_requirements'::regclass) then
   alter table public.student_requirements add constraint student_req_season_fk foreign key
   (season_requirement_id,organization_id) references public.season_requirements(id,organization_id);
  end if;
-end $;
+end $migration$;
 
 -- Legacy requirement_id is no longer mandatory for newly created entries.
 alter table public.student_requirements
