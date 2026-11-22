@@ -12,9 +12,16 @@ function activeTeams(){return state.teams.filter(t=>t.season_id===state.season)}
 function activeEnrollments(){const ids=new Set(activeTeams().map(t=>t.id));return state.enrollments.filter(e=>ids.has(e.team_id)&&e.status!=='withdrawn')}
 function reqsFor(team){
  if(!state.requirementsMode) return state.requirements.filter(r=>r.season_id===state.season&&(!r.program||r.program===team.program));
- return state.seasonRules.filter(r=>r.season_id===state.season&&r.is_active&&(
+ const applicable=state.seasonRules.filter(r=>r.season_id===state.season&&r.is_active&&(
  r.scope==='all'||(r.scope==='program'&&r.program===team.program)||(r.scope==='team'&&r.team_id===team.id)
- )).map(r=>({...r,name:r.display_name}));
+ ));
+ const mostSpecific=new Map();
+ const priority={all:1,program:2,team:3};
+ for(const r of applicable){
+  const prior=mostSpecific.get(r.definition_id);
+  if(!prior||priority[r.scope]>priority[prior.scope])mostSpecific.set(r.definition_id,r);
+ }
+ return [...mostSpecific.values()].map(r=>({...r,name:r.display_name}));
 }
 function matchedCompletion(e,r) {
  return state.studentRequirements.find(sr=>sr.enrollment_id===e.id&&
@@ -37,10 +44,12 @@ const [defs,rules]=await Promise.all([
  state.api.from('season_requirements').select('*').eq('organization_id',org).limit(1000)]);
 if(!defs.error&&!rules.error){
  state.definitions=defs.data||[];state.seasonRules=rules.data||[];state.requirementsMode=true;
-}else if(!['PGRST205','42P01','PGRST204'].includes(defs.error?.code)&&defs.error||
-          !['PGRST205','42P01','PGRST204'].includes(rules.error?.code)&&rules.error){
- throw defs.error||rules.error;
-}else{state.definitions=[];state.seasonRules=[];state.requirementsMode=false;}
+}else{
+ const missing=['PGRST205','42P01','PGRST204'];
+ const unexpected=[defs.error,rules.error].find(err=>err&&!missing.includes(err.code));
+ if(unexpected)throw unexpected;
+ state.definitions=[];state.seasonRules=[];state.requirementsMode=false;
+}
 const previous=state.season;state.season=state.seasons.some(s=>s.id===previous)?previous:(state.seasons.find(s=>s.is_active)||state.seasons[0])?.id||null;$('season-filter').innerHTML=state.seasons.map(s=>option(s.id,s.name,s.id===state.season)).join('');render()}
 async function begin(){message();try{const {data:{user},error}=await state.api.auth.getUser();if(error)throw error;if(!user){display('login');return}state.user=user;const memberships=check(await state.api.from('memberships').select('organization_id,role').eq('user_id',user.id));if(!memberships.length)throw Error('Your account has no organization membership. Ask an administrator to grant access.');const membership=memberships[0];const orgs=check(await state.api.from('organizations').select('id,name').eq('id',membership.organization_id).single());state.org=orgs;state.role=membership.role;$('who').textContent=user.email;display('workspace');await fetchData()}catch(err){display('login');message(err.message)}}
 function modal(title,html){$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal').classList.remove('hidden')}
