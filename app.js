@@ -597,6 +597,31 @@ function studentDetail(id){
    +history.map(h=>'<tr><td>'+escapeHtml(h.season)+'</td><td>'+escapeHtml(h.team?.team_number||'—')+'</td><td>'+escapeHtml(h.team?.name||'Unknown')+'</td><td>'+escapeHtml(h.enrollment.status)+'</td></tr>').join('')
    +'</tbody></table></div>':'<p class="muted">No participation history yet.</p>')
   +'</div>';
+ if(state.role==='admin'&&state.familyMode){
+  const contact=studentContact(st);
+  const homes=householdsForStudent(id);
+  const guardians=guardiansForStudent(id);
+  html+='<div class="section"><div class="bar"><h3>Student contact profile</h3>'
+   +'<button class="small secondary" data-action="edit-student-contact" data-id="'+id+'">Edit contact</button></div>'
+   +'<p class="muted">'+escapeHtml([
+      contact?.birth_date?'DOB: '+contact.birth_date:null,
+      contact?.email,contact?.mobile_phone,
+      contact?.mayhem_email?'Mayhem: '+contact.mayhem_email:null
+    ].filter(Boolean).join(' · ')||'No personal contact information recorded')+'</p></div>';
+  html+='<div class="section"><div class="bar"><h3>Households</h3>'
+    +'<button class="small secondary" data-action="link-student-household" data-id="'+id+'">+ Link household</button></div>'
+    +homes.map(x=>'<div class="bar"><span>'+escapeHtml(familyLabel(x.household))+(x.link.is_primary?' (primary)':'')+'</span>'
+      +'<button class="small secondary" data-action="unlink-sh" data-id="'+x.link.id+'">Unlink</button></div>').join('')
+    +(!homes.length?'<p class="muted">No households linked.</p>':'')+'</div>';
+  html+='<div class="section"><div class="bar"><h3>Guardians</h3>'
+    +'<button class="small secondary" data-action="link-student-guardian" data-id="'+id+'">+ Link guardian</button></div>'
+    +guardians.map(x=>'<div class="bar"><span>'+escapeHtml(guardianName(x.guardian))
+      +(x.link.relationship?' · '+escapeHtml(x.link.relationship):'')
+      +(x.link.is_primary_contact?' · Primary contact':'')
+      +(x.link.emergency_contact?' · Emergency contact':'')+'</span>'
+      +'<button class="small secondary" data-action="unlink-sg" data-id="'+x.link.id+'">Unlink</button></div>').join('')
+    +(!guardians.length?'<p class="muted">No guardians linked.</p>':'')+'</div>';
+ }
  modal('Student',html);
  if($('assign-form'))$('assign-form').onsubmit=e=>saveForm(e,async f=>{
   check(await state.api.from('team_enrollments').insert({
@@ -621,5 +646,19 @@ $('team-filter').onchange=render;$('student-search').oninput=render;
 $('close-modal').onclick=closeModal;
 $('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').classList.contains('hidden'))closeModal()});
-document.addEventListener('click',e=>{const nav=e.target.closest('[data-tab]');if(nav){setTab(nav.dataset.tab);return}const b=e.target.closest('[data-action]');if(!b)return;try{const a=b.dataset.action,id=b.dataset.id;if(a==='close-modal')closeModal();if(a==='add-team')teamForm();if(a==='add-existing-team')addExistingTeamForm();if(a==='edit-catalog-team')catalogTeamForm(id);if(a==='add-season')seasonForm();if(a==='edit-team')teamForm(id);if(a==='add-student')studentForm();if(a==='returning-student')returningStudentForm();if(a==='edit-student')studentForm(id);if(a==='student-detail')studentDetail(id);if(a==='enrollment-detail')enrollmentDetail(id);if(a==='add-definition')definitionForm();if(a==='edit-definition')definitionForm(id);if(a==='add-requirement')requirementForm();if(a==='edit-requirement')requirementForm(id)}catch(err){message(err.message)}});
+document.addEventListener('click',e=>{const nav=e.target.closest('[data-tab]');if(nav){setTab(nav.dataset.tab);return}const b=e.target.closest('[data-action]');if(!b)return;try{const a=b.dataset.action,id=b.dataset.id;if(a==='close-modal')closeModal();if(a==='add-team')teamForm();if(a==='add-existing-team')addExistingTeamForm();if(a==='edit-catalog-team')catalogTeamForm(id);if(a==='add-season')seasonForm();if(a==='edit-team')teamForm(id);if(a==='add-student')studentForm();if(a==='returning-student')returningStudentForm();if(a==='edit-student')studentForm(id);if(a==='student-detail')studentDetail(id);if(a==='enrollment-detail')enrollmentDetail(id);if(a==='add-definition')definitionForm();if(a==='edit-definition')definitionForm(id);if(a==='add-requirement')requirementForm();if(a==='edit-requirement')requirementForm(id);
+if(a==='add-household')householdForm();if(a==='edit-household')householdForm(id);
+if(a==='household-detail')householdDetail(id);
+if(a==='add-guardian')guardianForm();if(a==='edit-guardian')guardianForm(id);
+if(a==='guardian-detail')guardianDetail(id);
+if(a==='edit-student-contact')studentContactForm(id);
+if(a==='link-student-household')familyLinkForm('studentHousehold',id);
+if(a==='link-household-student')familyLinkForm('householdStudent',id);
+if(a==='link-student-guardian')familyLinkForm('studentGuardian',id);
+if(a==='link-guardian-student')familyLinkForm('guardianStudent',id);
+if(a==='link-household-guardian')familyLinkForm('householdGuardian',id);
+if(a==='link-guardian-household')familyLinkForm('guardianHousehold',id);
+if(a==='unlink-sh')confirmFamilyUnlink('sh',id);
+if(a==='unlink-sg')confirmFamilyUnlink('sg',id);
+if(a==='unlink-hg')confirmFamilyUnlink('hg',id)}catch(err){message(err.message)}});
 init();
