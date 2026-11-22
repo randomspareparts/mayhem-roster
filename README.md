@@ -127,6 +127,8 @@ both systems.
 | `household_guardian_links` | Multiple guardians per household, and vice versa |
 | `student_guardian_links` | Guardian-to-student role, primary/emergency contact flags |
 
+Permanent students can now be created without immediate team enrollment, which is useful for inquiries and prospects. On **Students**, choose **Show all students, including those without an enrollment** to edit their records or family links. The normal season roster view is unchanged. Newly created team enrollments begin **pending**, not automatically confirmed.
+
 ### Activation and verification
 1. Open the SQL script above in GitHub using **Raw** and copy it in full.
 2. Create a **new query** in your Supabase project's SQL Editor and run it.
