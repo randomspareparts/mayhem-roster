@@ -5,6 +5,17 @@
 -- This first implementation stores PII in admin-only tables (not public GitHub).
 begin;
 
+-- Enforce a composite key so every family relationship stays in one org.
+do $family$ begin
+ if not exists (
+  select 1 from pg_constraint where conrelid='public.students'::regclass
+   and conname='students_id_org_family_unique'
+ ) then
+  alter table public.students
+   add constraint students_id_org_family_unique unique (id,organization_id);
+ end if;
+end $family$;
+
 -- Existing students is the canonical person identity.
 -- A student has at most one personal contact record, independent of seasons.
 create table if not exists public.student_contact_profiles (
