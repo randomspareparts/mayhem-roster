@@ -190,7 +190,7 @@
    const saved=check(await state.api.from('student_requirements').insert({
     organization_id:state.org.id,enrollment_id:enrollmentId,
     season_requirement_id:rule.id,status:yes(cell)?'received':'pending',
-    completed_at:yes(cell)?new Date().toISOString():null
+    completed_at:null // source confirms status, but not the date it was completed
    }).select('*').single());
    state.studentRequirements.push(saved);
   }
@@ -221,7 +221,8 @@
    const savedContact=check(await state.api.from('student_contact_profiles').insert({
     organization_id:state.org.id,student_id:student.id,birth_date:dob,
     email,mobile_phone:record.mobile||null,
-    mayhem_email:email&&email.toLowerCase().endsWith('@mayhemrobotics.org')?email:null
+    mayhem_email:record.mayhemEmail&&yes(record.mayhemEmail)?
+      (email&&email.toLowerCase().endsWith('@mayhemrobotics.org')?email:null):null
    }).select('*').single());
    state.studentContacts.push(savedContact);
   }
@@ -240,7 +241,7 @@
     const saved=check(await state.api.from('first_registrations').insert({
      organization_id:state.org.id,enrollment_id:enrollment.id,
      status:yes(status)?'complete':'not_started',
-     verified_at:yes(status)?new Date().toISOString():null
+     verified_at:null // source says registered but gives no verification timestamp
     }).select('*').single());
     state.first.push(saved);
    }
@@ -259,6 +260,37 @@
   imp.importedIds.add(sourceFingerprint(row));
   return {student,enrollment};
  }
+ function validatePicks(picks,team){
+  const errors=[],seenSourceNames=new Set(),seenStudents=new Set();
+  if(!state.familyMode)errors.push('Family/contact tables are not available. Run and verify the Phase 3 migration.');
+  if(!state.requirementsMode)errors.push('Annual requirements tables are not available.');
+  if(picks.length>100)errors.push('Select at most 100 rows per batch.');
+  for(const {row,choice} of picks){
+   const r=row.record,mode=chosenAction(choice),label='Row '+row.line+': ';
+   if(!mode){errors.push(label+'Choose Create or Match.');continue;}
+   if(!canCreate(row)){errors.push(label+'Student name is incomplete.');continue;}
+   const n=key(r.name);
+   if(seenSourceNames.has(n))errors.push(label+'Repeated student name within selection; review before import.');
+   seenSourceNames.add(n);
+   const matches=candidateMatches(row);
+   if(mode.kind==='create'&&matches.length)errors.push(label+'Existing student with this name found; select Match.');
+   if(mode.kind==='match'){
+    const st=state.students.find(s=>s.id===mode.id);
+    if(!st||!matches.some(m=>m.id===st.id))errors.push(label+'Student match is no longer valid.');
+    const dob=state.studentContacts.find(c=>c.student_id===mode.id)?.birth_date;
+    if(dob&&dateValue(r.birth)&&dob!==dateValue(r.birth))
+     errors.push(label+'Birth date conflicts with the selected student.');
+    if(seenStudents.has(mode.id))errors.push(label+'Same permanent student selected for more than one source row.');
+    seenStudents.add(mode.id);
+   }
+   if(r.birth&&!dateValue(r.birth))errors.push(label+'Unrecognized birth date; correct the source or leave this row skipped.');
+   if(!['confirmed member','inactive','prospect / follow up'].includes(key(r.category)))
+    errors.push(label+'Unexpected roster category "'+r.category+'"; skip pending review.');
+   if(key(r.category)==='confirmed member'&&!team)
+    errors.push(label+'Target season team must be selected.');
+  }
+  return errors;
+ }
  async function save(){
   if(!state.user||state.role!=='admin')throw Error('Admin sign-in required.');
   if(!imp.rows.length||imp.loadedSeason!==state.season)throw Error('Preview this workbook for the currently selected season first.');
@@ -266,6 +298,8 @@
   const team=activeTeams().find(t=>t.id===$('import-team').value);
   if(!team)throw Error('Choose a participating target team.');
   const picks=selectedRows();if(!picks.length)throw Error('Choose Create or Match for at least one row.');
+  const problems=validatePicks(picks,team);
+  if(problems.length)throw Error('Preflight failed. No records saved: '+problems.join(' | '));
   // The import audit table is the application-level signal that SQL
   // phase 4 has been applied. It is also admin-only under RLS.
   const records=check(await state.api.from('roster_import_records').select('source_fingerprint').eq('organization_id',state.org.id).eq('season_id',state.season).limit(1000));
