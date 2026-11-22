@@ -136,6 +136,27 @@
   imp.rows=results;imp.filename=file.name;imp.sheet=sheetName;imp.header=arr[headerAt];
   imp.loadedSeason=state.season;imp.importedIds.clear();previewRender();
  }
+ function example(){
+  if(state.role!=='admin')throw Error('Administrator access required.');
+  const sample=[
+   {name:'Fictional Exampleton',category:'Confirmed Member',followup:'Confirmed',
+    birth:'2012-03-04',email:'exampleton@example.invalid',mobile:'555-0100',
+    first:'Yes',dues:'Unknown',form1:'Yes',form2:'Unknown',
+    guardName:'Pat Exampleton',guardian1:'pat@example.invalid',address:'123 Fictional Lane, Sampletown',
+    _extra:{'Student Name':'Fictional Exampleton','Roster Category':'Confirmed Member',
+      'Follow-up Status':'Confirmed','Birth Date':'2012-03-04','Student Email':'exampleton@example.invalid',
+      'Parent / Guardian':'Pat Exampleton','Parent 1 Email':'pat@example.invalid','FIRST Registered':'Yes'}},
+   {name:'Imaginary Prospector',category:'Prospect / Follow Up',followup:'Awaiting Reply',
+    birth:'',email:'',mobile:'',first:'Unknown',dues:'Unknown',form1:'Unknown',
+    guardName:'',guardian1:'',address:'',_extra:{'Student Name':'Imaginary Prospector',
+      'Roster Category':'Prospect / Follow Up','Follow-up Status':'Awaiting Reply'}}
+  ];
+  imp.rows=sample.map((record,i)=>({line:i+5,record}));
+  imp.filename='Fictional_Demo_Roster.xlsx';
+  imp.sheet='Roster';imp.header=Object.values(headerMap);
+  imp.loadedSeason=state.season;imp.importedIds.clear();previewRender();
+  $('import-summary').textContent+=' Fictional sample only — no real student data.';
+ }
  function clear(){
   imp.rows=[];imp.filename='';imp.sheet='';imp.header=[];imp.loadedSeason=null;
   $('import-file').value='';$('import-preview-table').replaceChildren();
@@ -322,6 +343,7 @@
  }
  window.mayhemImportRefresh=refresh;
  $('import-preview').onclick=()=>run(preview);
+ $('import-example').onclick=()=>run(example);
  $('import-reset').onclick=clear;
  $('import-authorized').onchange=e=>{$('import-save').disabled=!e.target.checked;};
  $('import-save').onclick=()=>run(save);
