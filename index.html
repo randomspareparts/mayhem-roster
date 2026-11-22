@@ -23,7 +23,7 @@
 <p id="import-empty" class="empty">Select a workbook and click Preview.</p>
 <div id="import-security" class="hidden">
 <p class="muted note">Saving will write private student data to Supabase. Do not proceed with real records until an actual non-admin access test, a recovery-tested backup, and an import reconciliation review have been completed.</p>
-<label class="inline"><input id="import-authorized" type="checkbox"> I confirm the live security, backup/restore and source-data approval checks are complete</label>
+<p class="muted note"><a href="https://github.com/randomspareparts/mayhem-roster/blob/main/docs/production-readiness.md" target="_blank" rel="noopener noreferrer">Read the production readiness checklist</a> before enabling imports. This checkbox records your confirmation; it does not verify the checks automatically.</p><label class="inline"><input id="import-authorized" type="checkbox"> I confirm the live security, backup/restore and source-data approval checks are complete</label>
 <div class="controls"><button id="import-save" disabled>Import reviewed rows</button></div>
 </div><p id="import-result" aria-live="polite"></p></div>
 <div class="card"><h2>Export roster</h2><p class="muted note">Download a CSV for the selected season, including the enrolled students, available contact details and registration summary. CSV opens in Excel. Handle the file as confidential student information.</p><button id="export-roster">Export selected season (CSV)</button></div>
