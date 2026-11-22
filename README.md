@@ -53,3 +53,21 @@ To start the next year:
 Do not create a second student record for someone returning. Use **Enroll returning student**.
 
 **Current limitation:** The rollover process creates the season and copies related records in multiple requests, not a single database transaction. If an error occurs partway through, some records may already have been copied. Review the new season before retrying; don't create the same season again. Eventually this should be moved to a database transaction/RPC with a tested rollback mechanism. Continue using fictional data until access and backup tests are completed.
+
+## Configurable requirements catalog migration (November 22, 2026)
+
+The Requirements tab now supports three distinct concepts:
+1. **Requirement catalog** (`requirement_definitions`): reusable names/descriptions and types across seasons.
+2. **Annual assignments** (`season_requirements`): snapshot of the requirement name and applicability to all teams, one program, or one season team.
+3. **Completion records** (`student_requirements`): individual student enrollment statuses for each annual assignment.
+
+**Activate this version in Supabase:**
+1. In the Supabase SQL Editor, start a new query and paste the complete contents of [20261122_requirements_catalog.sql](supabase/migrations/20261122_requirements_catalog.sql).
+2. Run it as project administrator. It is additive and transaction-wrapped, preserving existing requirements and completion records.
+3. Confirm the final result has `catalog_definitions`, `annual_rules`, and `linked_completions` columns. Zero counts are valid on a fresh project.
+4. Refresh the GitHub Pages app. Open **Requirements**: you can add reusable definitions, then assign them to a season with all/program/team scope.
+5. With fictional test data, verify newly assigned requirements appear on the appropriate student's Registration Details and statuses survive refresh. Compare historical completions before and after.
+
+**Rollout caution:** The UI code is deployed before the SQL migration. It can read the legacy requirements while awaiting migration, but creation/editing of the new catalog requires the SQL migration. Do not import actual children's data until comprehensive authorization and backups are tested. The annual-rule snapshot means a later catalog rename does not retroactively rename prior seasons. The app currently provides creation of definitions and annual assignments; edit/retire controls and richer historical audits are future work.
+
+**Legacy note:** The old `requirements` table remains in place for migration compatibility and should not be manually edited after transitioning. Do not delete it until all references have been carefully migrated and tested.
