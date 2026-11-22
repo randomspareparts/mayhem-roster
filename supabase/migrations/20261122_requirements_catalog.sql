@@ -51,12 +51,17 @@ create table if not exists public.season_requirements (
 
 -- Team is a season-specific row in the current schema.
 -- This FK will be adjusted with the future permanent-team migration.
-alter table public.teams
-  add constraint teams_id_org_season_unique unique (id, organization_id, season_id);
-alter table public.season_requirements
-  add constraint season_requirements_team_same_season_fk
-  foreign key (team_id,organization_id,season_id)
-  references public.teams(id,organization_id,season_id);
+do $ begin
+ if not exists (select 1 from pg_constraint where conname='teams_id_org_season_unique' and conrelid='public.teams'::regclass) then
+   alter table public.teams add constraint teams_id_org_season_unique unique (id,organization_id,season_id);
+ end if;
+end $;
+do $ begin
+ if not exists (select 1 from pg_constraint where conname='season_requirements_team_same_season_fk' and conrelid='public.season_requirements'::regclass) then
+  alter table public.season_requirements add constraint season_requirements_team_same_season_fk
+    foreign key (team_id,organization_id,season_id) references public.teams(id,organization_id,season_id);
+ end if;
+end $;
 
 -- Prevent duplicate annual rules, including null scope dimensions.
 create unique index if not exists season_requirements_unique_scope
@@ -97,10 +102,12 @@ on conflict (legacy_requirement_id) do nothing;
 alter table public.student_requirements
   add column if not exists season_requirement_id uuid;
 
-alter table public.student_requirements
-  add constraint student_req_season_fk foreign key
-  (season_requirement_id, organization_id)
-  references public.season_requirements(id,organization_id);
+do $ begin
+ if not exists (select 1 from pg_constraint where conname='student_req_season_fk' and conrelid='public.student_requirements'::regclass) then
+  alter table public.student_requirements add constraint student_req_season_fk foreign key
+  (season_requirement_id,organization_id) references public.season_requirements(id,organization_id);
+ end if;
+end $;
 
 -- Legacy requirement_id is no longer mandatory for newly created entries.
 alter table public.student_requirements
