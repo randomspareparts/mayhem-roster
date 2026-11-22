@@ -9,7 +9,7 @@ Mobile-friendly GitHub Pages app backed by Supabase authentication and Postgres.
 - Track forms, payment totals/waivers, and FIRST registration per enrollment
 - Filter by season/team; view counts and outstanding items
 
-Not yet built: Excel import/export, attendance, notifications, audit trail, team-limited coach access. Student, household, and guardian editors are available after the Phase 3 migration. Current coaches/viewers have organization-wide read access.
+Not yet built: automatic guardian/address reconciliation during imports, attendance, notifications, operational change audit trail, and team-limited coach access. The Excel import review and CSV export screen is available after the Phase 4 import-log migration. Student, household, and guardian editors are available after the Phase 3 migration. Current coaches/viewers have organization-wide read access.
 
 ## Deployment
 GitHub Settings > Pages > Deploy from a branch > main / (root).
@@ -164,3 +164,83 @@ or the Excel source roster in this public GitHub repository.
 `Mayhem_2027_Roster_Updated(1).xlsx`. Build a browser-local import preview,
 explicit row-matching and conflict-review workflow before uploading any real
 student data. Do not infer that prospects or inactive entries are participating.
+
+
+## Phase 4: Reviewed Excel roster import and CSV export (2026-11-22)
+
+This release adds an **Import / Export** tab for organization administrators.
+
+### Source workbook and field mapping
+The confirmed input is `Mayhem_2027_Roster_Updated(1).xlsx`, **Roster** worksheet,
+with headers on worksheet row 4. The workbook's working roster currently has
+32 list entries (23 Confirmed Member, 7 Inactive, 2 Prospect / Follow Up).
+Other worksheets include Overview, Apparel Orders, Guide, Source Archive, and Survey Review;
+they are not imported as independent students.
+
+Relevant mapped columns:
+- `Student Name`: used for identity matching and new permanent students.
+- `Birth Date`, `Student Email`, `Student Cell`: stored in the permanent student contact profile when creating that profile. Existing contact profiles are **not overwritten**.
+- `Roster Category`, `Follow-up Status`: confirmed member rows create an
+  enrollment. `Confirmed` results in active; other confirmed-member follow-up
+  statuses result in pending. Inactive entries and prospects are **not**
+  enrolled merely because their profiles are imported.
+- `FIRST Registered`: explicit Yes/No maps to complete/not_started if a
+  registration record does not already exist; Unknown means **no write**.
+- `Mayhem Release`, `WireBelt Release`, `Emergency Medical`, `Media Waiver`,
+  `FIRST Release`: map to corresponding **already assigned season requirements**,
+  where found. Yes maps to received, No to pending; Unknown/blank is not
+  converted into a completion status. Existing completion entries are not overwritten.
+- `Dues Paid`: boolean is **not** converted into an amount or paid balance,
+  because a Yes/No value alone does not establish how much was paid.
+- Parent/guardian names/emails/phones, address, apparel selections, notes,
+  and all source fields are preserved in the **admin-only import provenance row**
+  for explicit review. They are **not automatically merged** with guardians
+  or households because the workbook has incomplete/ambiguous labels and
+  shared contacts. Reconcile those items manually under Families.
+
+### Activate
+
+1. Apply [20261122_roster_import_audit.sql](supabase/migrations/20261122_roster_import_audit.sql)
+   in a fresh Supabase SQL query. The result must show
+   `rls_enabled = true` and `anon_can_select = false`.
+2. Refresh the app and open **Import / Export**.
+3. Choose an .xlsx, .xls or .csv file and the correct season/team, then
+   select **Preview workbook**. This happens **locally in the browser**;
+   the file is not sent to GitHub, and no database write occurs on preview.
+4. Inspect the per-row category, possible exact-name match, and warnings.
+   **Every row defaults to Skip**. Explicitly select Create or Match on each
+   row you intend to import; do not create a duplicate student if there is
+   a possible match. An incomplete name cannot create a student.
+5. **Do not import real children yet** until a separate live user without
+   admin privileges has been tested against the actual private tables and
+   there is a tested backup and restore process. Once those are established,
+   you can certify the checks in the app and click **Import reviewed rows**.
+   The tool saves one row at a time and stops on an error. If it fails,
+   inspect both the student and the private import log before retrying.
+6. Use **Export selected season (CSV)** to download the current enrolled
+   roster, contacts and season-specific requirement statuses. This contains
+   sensitive data and should be protected accordingly.
+
+**Known limitations:** XLSX parsing uses the locally executing SheetJS
+JavaScript library loaded from a CDN; workbook content is handled in the
+client browser. The source schema is matched by column names, not hardcoded
+column positions. The first importer version uses conservative exact-name
+identity matching (not fuzzy auto-merge), captures source fields in an
+admin-only private table, and does not automatically reconcile family records
+or apparel orders. Multi-row imports are **not yet one atomic database
+transaction**, so stop and review if any row fails. Source provenance is
+intended to prevent accidental reprocessing of an identical source row.
+Do not upload confidential Excel workbooks to GitHub.
+
+### Phase 4 verification with fictional data
+
+- Use a separate **fictional** test spreadsheet with the same header names
+  and two made-up full student names.
+- Preview should not insert anything. Verify every row says Skip.
+- Set a row to Create; if the phase-4 migration and security/backup checks are
+  complete, import it and verify the permanent student and season enrollment.
+- Preview the same file again and verify duplicate students are not created:
+  choose Match, or stop on an already-imported fingerprint.
+- Verify inactive/prospect rows do not create active enrollments.
+- Export the selected season to CSV, then open it in Excel and verify
+  team participation and form statuses persist.
