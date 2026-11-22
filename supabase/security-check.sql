@@ -1,23 +1,25 @@
 -- Mayhem Roster Manager: public access hardening + safe RLS smoke test
 -- Run in the Supabase SQL Editor, using the SQL Editor's normal administrator context.
--- This is intended for the 14 tables created in setup parts 1-3.
+-- This is intended for the original 14 roster tables plus the 3 catalog/migration tables.
 -- It does not insert or delete student data.
 
 -- Remove inherited public/anonymous table access.
 revoke all on
  public.organizations, public.memberships, public.seasons, public.teams,
- public.students, public.team_enrollments, public.households, public.guardians,
+ public.students, public.team_enrollments, public.team_catalog, public.households, public.guardians,
  public.household_guardians, public.student_households, public.requirements,
- public.student_requirements, public.student_dues, public.first_registrations
+ public.student_requirements, public.student_dues, public.first_registrations,
+ public.requirement_definitions, public.season_requirements
 from anon, public;
 
 -- The application uses the authenticated role. Row Level Security remains enforced.
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on
  public.organizations, public.memberships, public.seasons, public.teams,
- public.students, public.team_enrollments, public.households, public.guardians,
+ public.students, public.team_enrollments, public.team_catalog, public.households, public.guardians,
  public.household_guardians, public.student_households, public.requirements,
- public.student_requirements, public.student_dues, public.first_registrations
+ public.student_requirements, public.student_dues, public.first_registrations,
+ public.requirement_definitions, public.season_requirements
 to authenticated;
 
 -- Prevent anonymous access to our authorization helper functions.
@@ -31,10 +33,10 @@ select tablename, rowsecurity
 from pg_tables
 where schemaname = 'public'
   and tablename in (
-    'organizations','memberships','seasons','teams','students',
+    'organizations','memberships','seasons','teams','team_catalog','students',
     'team_enrollments','households','guardians','household_guardians',
     'student_households','requirements','student_requirements',
-    'student_dues','first_registrations'
+    'student_dues','first_registrations','requirement_definitions','season_requirements'
   )
 order by tablename;
 
@@ -42,7 +44,10 @@ order by tablename;
 select
  has_table_privilege('anon','public.students','select') as anon_can_read_students,
  has_table_privilege('anon','public.guardians','select') as anon_can_read_guardians,
- has_table_privilege('anon','public.student_dues','select') as anon_can_read_dues;
+ has_table_privilege('anon','public.student_dues','select') as anon_can_read_dues,
+ has_table_privilege('anon','public.team_catalog','select') as anon_can_read_team_catalog,
+ has_table_privilege('anon','public.requirement_definitions','select') as anon_can_read_req_catalog,
+ has_table_privilege('anon','public.season_requirements','select') as anon_can_read_annual_rules;
 
 -- Test 2: a signed-in user with NO membership should see zero rows.
 -- Uses a deliberately artificial UUID. ROLLBACK restores session settings.
@@ -53,7 +58,10 @@ select
  (select count(*) from public.organizations) as organizations_visible,
  (select count(*) from public.students) as students_visible,
  (select count(*) from public.guardians) as guardians_visible,
- (select count(*) from public.student_dues) as dues_visible;
+ (select count(*) from public.student_dues) as dues_visible,
+ (select count(*) from public.team_catalog) as team_catalog_visible,
+ (select count(*) from public.requirement_definitions) as req_catalog_visible,
+ (select count(*) from public.season_requirements) as annual_rules_visible;
 rollback;
 
 -- Expected results: all 'anon_can_read_*' = false; all '*_visible' = 0.
