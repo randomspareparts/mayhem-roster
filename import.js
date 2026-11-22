@@ -173,8 +173,10 @@
  function chosenAction(choice){return choice==='create'?{kind:'create'}:
   choice.startsWith('match:')?{kind:'match',id:choice.slice(6)}:null;}
  function relevantRule(r,team){
-  const n=key(r.name||r.display_name).replace(/[^a-z0-9]/g,'');
-  return reqsFor(team).find(x=>key(x.name||x.display_name).replace(/[^a-z0-9]/g,'')===n);
+  const normalized=n=>key(n).replace(/\s*\(v[.\s-]*\d{4}\)\s*$/,'').replace(/[^a-z0-9]/g,'');
+  const n=normalized(r.name||r.display_name);
+  const matching=reqsFor(team).filter(x=>normalized(x.name||x.display_name)===n);
+  return matching.length===1?matching[0]:null; // ambiguous labels must not map silently
  }
  async function applyRequirements(enrollmentId,team,source){
   if(!state.requirementsMode)return;
