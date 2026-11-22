@@ -33,9 +33,9 @@ function name(s){return (s.preferred_name||s.first_name)+' '+s.last_name}
 function render(){if(!state.org)return;const aTeams=activeTeams(),aEnroll=activeEnrollments(),selectedStudentIds=new Set(aEnroll.map(e=>e.student_id)),aStudents=state.students.filter(s=>selectedStudentIds.has(s.id));$('membership-label').textContent=state.org.name+' · '+state.role+' access';document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',state.role!=='admin'));$('count-students').textContent=aStudents.length;$('count-teams').textContent=aTeams.length;$('count-enrollments').textContent=aEnroll.length;$('count-not-ready').textContent=aEnroll.reduce((sum,e)=>sum+enrollmentStatus(e).outstanding,0);$('overview-info').textContent=aTeams.length?aTeams.map(t=>t.name+' ('+aEnroll.filter(e=>e.team_id===t.id).length+' students)').join(' · '):'No teams yet. Add your first team in the Teams tab.';const selection=$('team-filter').value;$('team-filter').innerHTML=option('','All teams')+aTeams.map(t=>option(t.id,t.name,t.id===selection)).join('');$('team-table').innerHTML=aTeams.map(t=>'<tr><td>'+escapeHtml(t.name)+'</td><td>'+escapeHtml(t.program)+'</td><td>'+escapeHtml(t.team_number||'—')+'</td><td>'+aEnroll.filter(e=>e.team_id===t.id).length+'</td><td><button class="small secondary admin-only" data-action="edit-team" data-id="'+t.id+'">Edit</button></td></tr>').join('');$('team-empty').textContent=aTeams.length?'':'No teams for this season.';const search=$('student-search').value.toLowerCase(),teamFilter=$('team-filter').value;const matching=state.students.filter(s=>{const enroll=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));return enroll.length&&name(s).toLowerCase().includes(search)});$('student-table').innerHTML=matching.map(s=>{const enr=aEnroll.filter(e=>e.student_id===s.id&&(teamFilter===''||e.team_id===teamFilter));const status=enr.map(enrollmentStatus);return '<tr><td>'+escapeHtml(name(s))+'</td><td>'+escapeHtml(enr.map(e=>state.teams.find(t=>t.id===e.team_id)?.name||'').join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.forms).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.dues).join(', '))+'</td><td>'+escapeHtml(status.map(x=>x.first).join(', '))+'</td><td><button class="small secondary" data-action="student-detail" data-id="'+s.id+'">Manage</button></td></tr>'}).join('');$('student-empty').textContent=matching.length?'':'No students match this season and team filter.';const rs=state.requirementsMode?state.seasonRules.filter(r=>r.season_id===state.season):state.requirements.filter(r=>r.season_id===state.season);
 $('requirements-mode').textContent=state.requirementsMode?'Catalog and annual assignments enabled.':'Migration pending. Follow the README to activate the catalog.';
 $('requirements-actions').classList.toggle('hidden',!state.requirementsMode);
-$('requirement-table').innerHTML=rs.map(r=>'<tr><td>'+escapeHtml(r.display_name||r.name)+'</td><td>'+escapeHtml(r.requirement_type)+'</td><td>'+escapeHtml(state.requirementsMode?(r.scope==='all'?'All teams':r.scope==='program'?r.program:state.teams.find(t=>t.id===r.team_id)?.name||'Team'):r.program||'All programs')+'</td><td>'+(r.is_required?'Yes':'No')+'</td><td>'+escapeHtml(state.requirementsMode?(r.is_active?'Active':'Archived'):'Legacy')+'</td></tr>').join('');
+$('requirement-table').innerHTML=rs.map(r=>'<tr><td>'+escapeHtml(r.display_name||r.name)+'</td><td>'+escapeHtml(r.requirement_type)+'</td><td>'+escapeHtml(state.requirementsMode?(r.scope==='all'?'All teams':r.scope==='program'?r.program:state.teams.find(t=>t.id===r.team_id)?.name||'Team'):r.program||'All programs')+'</td><td>'+(r.is_required?'Yes':'No')+'</td><td>'+escapeHtml(state.requirementsMode?(r.is_active?'Active':'Archived'):'Legacy')+'</td><td>'+(state.requirementsMode?'<button class="small secondary admin-only" data-action="edit-requirement" data-id="'+r.id+'">Edit assignment</button>':'')+'</td></tr>').join('');
 $('requirement-empty').textContent=rs.length?'':'No requirements for this season.';
-$('definition-table').innerHTML=state.definitions.map(d=>'<tr><td>'+escapeHtml(d.name)+'</td><td>'+escapeHtml(d.requirement_type)+'</td><td>'+(d.is_active?'Active':'Archived')+'</td></tr>').join('');
+$('definition-table').innerHTML=state.definitions.map(d=>'<tr><td>'+escapeHtml(d.name)+'</td><td>'+escapeHtml(d.requirement_type)+'</td><td>'+(d.is_active?'Active':'Archived')+'</td><td><button class="small secondary admin-only" data-action="edit-definition" data-id="'+d.id+'">Edit catalog</button></td></tr>').join('');
 $('definition-empty').textContent=state.requirementsMode&&!state.definitions.length?'No catalog entries yet.':'';
 document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',state.role!=='admin'))}
 async function fetchData(){const org=state.org.id;const queries=[['seasons',state.api.from('seasons').select('*').eq('organization_id',org).order('name',{ascending:false})],['teams',state.api.from('teams').select('*').eq('organization_id',org).order('name')],['students',state.api.from('students').select('*').eq('organization_id',org).order('last_name')],['enrollments',state.api.from('team_enrollments').select('*').eq('organization_id',org)],['requirements',state.api.from('requirements').select('*').eq('organization_id',org)],['studentRequirements',state.api.from('student_requirements').select('*').eq('organization_id',org)],['dues',state.api.from('student_dues').select('*').eq('organization_id',org)],['first',state.api.from('first_registrations').select('*').eq('organization_id',org)]];const results=await Promise.all(queries.map(async ([key,q])=>[key,check(await q.limit(1000))]));for(const [key,data]of results)state[key]=data;
@@ -113,45 +113,83 @@ function seasonForm(){
      }
    }
  })}
-function definitionForm(){
- requireAdmin();if(!state.requirementsMode)throw Error('Run the catalog migration first.');
- const content='<p class="muted">Catalog items are reusable across seasons.</p><form id="definition-form">'
- +field('Requirement name','name','',true)
- +'<label>Type<select name="requirement_type">'+['form','registration','other'].map(t=>option(t,t)).join('')+'</select></label>'
- +'<label>Description<textarea name="description" rows="3"></textarea></label>'+actions()+'</form>';
- modal('Add requirement to catalog',content);
+function definitionForm(id){
+ requireAdmin();
+ if(!state.requirementsMode)throw Error('Run the catalog migration first.');
+ const d=id?state.definitions.find(x=>x.id===id):null;
+ if(id&&!d)throw Error('Catalog item not found.');
+ const assigned=d?state.seasonRules.some(r=>r.definition_id===d.id):false;
+ const content='<p class="muted">'+(d?'Changes to the catalog name and description do not alter past season assignments.':'Catalog items are reusable across seasons.')+'</p><form id="definition-form">'
+ +field('Requirement name','name',d?.name||'',true)
+ +'<label>Type<select name="requirement_type" '+(assigned?'disabled':'')+'>'+['form','registration','other'].map(t=>option(t,t,d?.requirement_type===t)).join('')+'</select></label>'
+ +'<label>Description<textarea name="description" rows="3">'+escapeHtml(d?.description||'')+'</textarea></label>'
+ +(d?'<label>Status<select name="is_active">'+option('true','Active',d.is_active)+option('false','Archived',!d.is_active)+'</select></label>':'')
+ + (assigned?'<p class="muted note">Type is locked because this requirement has annual assignments.</p>':'')
+ + actions()+'</form>';
+ modal(d?'Edit catalog requirement':'Add requirement to catalog',content);
  $('definition-form').onsubmit=e=>saveForm(e,async f=>{
- const title=f.get('name').trim(),kind=f.get('requirement_type');
+ const title=f.get('name').trim(),kind=assigned?d.requirement_type:f.get('requirement_type');
  if(!title)throw Error('Enter a requirement name.');
  const key=title.toLowerCase()+':'+kind;
- if(state.definitions.some(d=>d.canonical_key===key))throw Error('This requirement already exists.');
- check(await state.api.from('requirement_definitions').insert({
- organization_id:state.org.id,canonical_key:key,name:title,requirement_type:kind,
- description:f.get('description').trim()||null}));
+ if(state.definitions.some(x=>x.id!==d?.id&&x.canonical_key===key))throw Error('This catalog name and type already exist.');
+ const payload={name:title,canonical_key:key,requirement_type:kind,description:f.get('description').trim()||null};
+ if(d){
+  payload.is_active=f.get('is_active')==='true';
+  check(await state.api.from('requirement_definitions').update(payload).eq('id',d.id).eq('organization_id',state.org.id));
+ }else{
+  check(await state.api.from('requirement_definitions').insert({...payload,organization_id:state.org.id}));
+ }
  });
 }
-function requirementForm(){
- requireAdmin();if(!state.requirementsMode)throw Error('Run the migration first.');
- if(!state.definitions.some(d=>d.is_active))throw Error('Add a catalog requirement first.');
- const content='<p class="muted">Applies to the selected school year only. Completion starts pending.</p>'
- +'<form id="requirement-form"><label>Catalog requirement<select name="definition_id">'
- +state.definitions.filter(d=>d.is_active).map(d=>option(d.id,d.name)).join('')+'</select></label>'
- +'<label>Applies to<select name="scope">'+option('all','All teams')+option('program','Program')+option('team','Specific team')+'</select></label>'
- +'<label>Program (when applicable)<select name="program">'+['FRC','FTC','FLL Challenge','FLL Explore','Other'].map(p=>option(p,p)).join('')+'</select></label>'
- +'<label>Team (when applicable)<select name="team_id">'+activeTeams().map(t=>option(t.id,t.name)).join('')+'</select></label>'
- +'<label>Required<select name="is_required">'+option('true','Yes',true)+option('false','Optional')+'</select></label>'
+function requirementForm(id){
+ requireAdmin();
+ if(!state.requirementsMode)throw Error('Run the migration first.');
+ const r=id?state.seasonRules.find(x=>x.id===id&&x.season_id===state.season):null;
+ if(id&&!r)throw Error('Season requirement not found.');
+ if(!r&&!state.definitions.some(d=>d.is_active))throw Error('Add a catalog requirement first.');
+ const previouslyUsed=r&&state.studentRequirements.some(sr=>sr.season_requirement_id===r.id);
+ const defs=r?state.definitions.filter(d=>d.is_active||d.id===r.definition_id):state.definitions.filter(d=>d.is_active);
+ const content='<p class="muted">'+(r?'This changes only the selected season assignment, not the reusable catalog or other seasons.':'Applies to the selected school year only. Completion starts pending.')+'</p>'
+ +'<form id="requirement-form"><label>Catalog requirement<select name="definition_id" '+(r?'disabled':'')+'>'
+ +defs.map(d=>option(d.id,d.name,d.id===r?.definition_id)).join('')+'</select></label>'
+ +field('Name shown for this season','display_name',r?.display_name||'',Boolean(r))
+ +'<label>Description for this season<textarea name="description" rows="3">'+escapeHtml(r?.description||'')+'</textarea></label>'
+ +'<label>Applies to<select name="scope" '+(previouslyUsed?'disabled':'')+'>'+option('all','All teams',r?.scope==='all')+option('program','Program',r?.scope==='program')+option('team','Specific team',r?.scope==='team')+'</select></label>'
+ +'<label>Program (when applicable)<select name="program" '+(previouslyUsed?'disabled':'')+'>'+['FRC','FTC','FLL Challenge','FLL Explore','Other'].map(p=>option(p,p,r?.program===p)).join('')+'</select></label>'
+ +'<label>Team (when applicable)<select name="team_id" '+(previouslyUsed?'disabled':'')+'>'+activeTeams().map(t=>option(t.id,t.name,t.id===r?.team_id)).join('')+'</select></label>'
+ +'<label>Required<select name="is_required">'+option('true','Yes',r?.is_required!==false)+option('false','Optional',r?.is_required===false)+'</select></label>'
+ +(r?'<label>Status<select name="is_active" '+(previouslyUsed?'disabled':'')+'>'+option('true','Active',r.is_active)+option('false','Archived',!r.is_active)+'</select></label>':'')
+ +(previouslyUsed?'<p class="muted note">This requirement has student completion records. Its catalog item, scope, and active status are locked to protect existing tracking.</p>':'')
  +actions()+'</form>';
- modal('Assign requirement to season',content);
+ modal(r?'Edit season assignment':'Assign requirement to season',content);
+ const titleInput=$('requirement-form').querySelector('[name="display_name"]');
+ const definitionSelect=$('requirement-form').querySelector('[name="definition_id"]');
+ if(!r&&titleInput&&definitionSelect){
+  titleInput.value=defs.find(x=>x.id===definitionSelect.value)?.name||'';
+  definitionSelect.onchange=()=>{titleInput.value=defs.find(x=>x.id===definitionSelect.value)?.name||'';};
+ }
  $('requirement-form').onsubmit=e=>saveForm(e,async f=>{
- const d=state.definitions.find(x=>x.id===f.get('definition_id')),scope=f.get('scope');
- if(!d)throw Error('Select a requirement.');
- const team=scope==='team'?activeTeams().find(t=>t.id===f.get('team_id')):null;
+ const d=state.definitions.find(x=>x.id===(r?r.definition_id:f.get('definition_id')));
+ const scope=previouslyUsed?r.scope:f.get('scope');
+ const displayName=f.get('display_name').trim();
+ if(!d||!displayName)throw Error('Select a catalog requirement and enter a season name.');
+ const team=scope==='team'?activeTeams().find(t=>t.id===(previouslyUsed?r.team_id:f.get('team_id'))):null;
  if(scope==='team'&&!team)throw Error('Select a team for this season.');
- check(await state.api.from('season_requirements').insert({
- organization_id:state.org.id,definition_id:d.id,season_id:state.season,scope,
- program:scope==='program'?f.get('program'):null,team_id:scope==='team'?team.id:null,
- display_name:d.name,description:d.description,requirement_type:d.requirement_type,
- is_required:f.get('is_required')==='true',is_active:true}));
+ const payload={
+  scope,program:scope==='program'?(previouslyUsed?r.program:f.get('program')):null,
+  team_id:scope==='team'?team.id:null,
+  display_name:displayName,description:f.get('description').trim()||null,
+  is_required:f.get('is_required')==='true'
+ };
+ if(r){
+  payload.is_active=previouslyUsed?r.is_active:f.get('is_active')==='true';
+  check(await state.api.from('season_requirements').update(payload).eq('id',r.id).eq('organization_id',state.org.id));
+ }else{
+  check(await state.api.from('season_requirements').insert({
+   ...payload,organization_id:state.org.id,definition_id:d.id,season_id:state.season,
+   requirement_type:d.requirement_type,is_active:true
+  }));
+ }
  });
 }
 function returningStudentForm(){
@@ -186,5 +224,5 @@ $('team-filter').onchange=render;$('student-search').oninput=render;
 $('close-modal').onclick=closeModal;
 $('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').classList.contains('hidden'))closeModal()});
-document.addEventListener('click',e=>{const nav=e.target.closest('[data-tab]');if(nav){setTab(nav.dataset.tab);return}const b=e.target.closest('[data-action]');if(!b)return;try{const a=b.dataset.action,id=b.dataset.id;if(a==='close-modal')closeModal();if(a==='add-team')teamForm();if(a==='add-season')seasonForm();if(a==='edit-team')teamForm(id);if(a==='add-student')studentForm();if(a==='returning-student')returningStudentForm();if(a==='edit-student')studentForm(id);if(a==='student-detail')studentDetail(id);if(a==='enrollment-detail')enrollmentDetail(id);if(a==='add-definition')definitionForm();if(a==='add-requirement')requirementForm()}catch(err){message(err.message)}});
+document.addEventListener('click',e=>{const nav=e.target.closest('[data-tab]');if(nav){setTab(nav.dataset.tab);return}const b=e.target.closest('[data-action]');if(!b)return;try{const a=b.dataset.action,id=b.dataset.id;if(a==='close-modal')closeModal();if(a==='add-team')teamForm();if(a==='add-season')seasonForm();if(a==='edit-team')teamForm(id);if(a==='add-student')studentForm();if(a==='returning-student')returningStudentForm();if(a==='edit-student')studentForm(id);if(a==='student-detail')studentDetail(id);if(a==='enrollment-detail')enrollmentDetail(id);if(a==='add-definition')definitionForm();if(a==='edit-definition')definitionForm(id);if(a==='add-requirement')requirementForm();if(a==='edit-requirement')requirementForm(id)}catch(err){message(err.message)}});
 init();
