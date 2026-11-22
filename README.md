@@ -18,6 +18,15 @@ App: https://randomspareparts.github.io/mayhem-roster/
 ## Connection
 Use only your Supabase publishable (or legacy anon) key with the Supabase project URL. Never put a service-role key, secret key, database password, student information, or roster export in this public repository. Login with the Supabase Authentication user assigned an admin membership.
 
+## Step 5: Production readiness (not yet verified)
+
+Follow the [Production Readiness Checklist](docs/production-readiness.md) and run
+the new [read-only real-account access test](supabase/readiness-access-test.sql).
+Do not import actual minors' data merely because the browser shows an
+authorization checkbox. An actual non-admin account and a tested restore are
+required. The import preflight now rejects common duplicate, date and status
+conflicts before writing. Successful preflight is **not** an atomic transaction.
+
 ## REQUIRED before entering actual student data
 1. Run [security-check.sql](supabase/security-check.sql) using Supabase SQL Editor.
 2. Confirm all roster and family tables have rowsecurity = true.
@@ -68,7 +77,7 @@ The Requirements tab now supports three distinct concepts:
 4. Refresh the GitHub Pages app. Open **Requirements**: you can add reusable definitions, then assign them to a season with all/program/team scope.
 5. With fictional test data, verify newly assigned requirements appear on the appropriate student's Registration Details and statuses survive refresh. Compare historical completions before and after.
 
-**Rollout caution:** The UI code is deployed before the SQL migration. It can read the legacy requirements while awaiting migration, but creation/editing of the new catalog requires the SQL migration. Do not import actual children's data until comprehensive authorization and backups are tested. The annual-rule snapshot means a later catalog rename does not retroactively rename prior seasons. The app currently provides creation of definitions and annual assignments; edit/retire controls and richer historical audits are future work.
+**Rollout caution:** The UI code is deployed before the SQL migration. It can read the legacy requirements while awaiting migration, but creation/editing of the new catalog requires the SQL migration. Do not import actual children's data until comprehensive authorization and backups are tested. The annual-rule snapshot means a later catalog rename does not retroactively rename prior seasons. The app provides catalog and annual assignment editing; richer historical audits remain future work.
 
 **Legacy note:** The old `requirements` table remains in place for migration compatibility and should not be manually edited after transitioning. Do not delete it until all references have been carefully migrated and tested.
 
