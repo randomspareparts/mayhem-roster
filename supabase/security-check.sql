@@ -1,6 +1,6 @@
 -- Mayhem Roster Manager: public access hardening + safe RLS smoke test
 -- Run in the Supabase SQL Editor, using the SQL Editor's normal administrator context.
--- This is intended for the original 14 roster tables, the 3 catalog/migration tables, and 6 new private family tables.
+-- This is intended for the original 14 roster tables, the 3 catalog/migration tables, 6 new private family tables, and 1 roster import provenance table.
 -- It does not insert or delete student data.
 
 -- Remove inherited public/anonymous table access.
@@ -11,7 +11,8 @@ revoke all on
  public.student_requirements, public.student_dues, public.first_registrations,
  public.requirement_definitions, public.season_requirements,
  public.student_contact_profiles, public.family_households, public.family_guardians,
- public.student_household_links, public.household_guardian_links, public.student_guardian_links
+ public.student_household_links, public.household_guardian_links, public.student_guardian_links,
+ public.roster_import_records
 from anon, public;
 
 -- The application uses the authenticated role. Row Level Security remains enforced.
@@ -23,7 +24,8 @@ grant select, insert, update, delete on
  public.student_requirements, public.student_dues, public.first_registrations,
  public.requirement_definitions, public.season_requirements,
  public.student_contact_profiles, public.family_households, public.family_guardians,
- public.student_household_links, public.household_guardian_links, public.student_guardian_links
+ public.student_household_links, public.household_guardian_links, public.student_guardian_links,
+ public.roster_import_records
 to authenticated;
 
 -- Prevent anonymous access to our authorization helper functions.
@@ -42,7 +44,8 @@ where schemaname = 'public'
     'student_households','requirements','student_requirements',
     'student_dues','first_registrations','requirement_definitions','season_requirements',
     'student_contact_profiles','family_households','family_guardians',
-    'student_household_links','household_guardian_links','student_guardian_links'
+    'student_household_links','household_guardian_links','student_guardian_links',
+    'roster_import_records'
   )
 order by tablename;
 
@@ -56,7 +59,8 @@ select
  has_table_privilege('anon','public.season_requirements','select') as anon_can_read_annual_rules,
  has_table_privilege('anon','public.family_guardians','select') as anon_can_read_private_guardians,
  has_table_privilege('anon','public.family_households','select') as anon_can_read_private_households,
- has_table_privilege('anon','public.student_contact_profiles','select') as anon_can_read_student_contacts;
+ has_table_privilege('anon','public.student_contact_profiles','select') as anon_can_read_student_contacts,
+ has_table_privilege('anon','public.roster_import_records','select') as anon_can_read_import_records;
 
 -- Test 2: a signed-in user with NO membership should see zero rows.
 -- Uses a deliberately artificial UUID. ROLLBACK restores session settings.
@@ -73,7 +77,8 @@ select
  (select count(*) from public.season_requirements) as annual_rules_visible,
  (select count(*) from public.family_guardians) as private_guardians_visible,
  (select count(*) from public.family_households) as private_households_visible,
- (select count(*) from public.student_contact_profiles) as private_contacts_visible;
+ (select count(*) from public.student_contact_profiles) as private_contacts_visible,
+ (select count(*) from public.roster_import_records) as import_records_visible;
 rollback;
 
 -- Expected results: all 'anon_can_read_*' = false; all '*_visible' = 0.
@@ -86,6 +91,7 @@ select tablename, policyname, roles, cmd, qual, with_check
 from pg_policies
 where schemaname='public' and tablename in (
  'student_contact_profiles','family_households','family_guardians',
- 'student_household_links','household_guardian_links','student_guardian_links'
+ 'student_household_links','household_guardian_links','student_guardian_links',
+ 'roster_import_records'
 )
 order by tablename,policyname;
