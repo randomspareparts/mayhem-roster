@@ -1,6 +1,6 @@
 'use strict';
 const $=id=>document.getElementById(id);
-const state={api:null,user:null,org:null,role:null,season:null,seasons:[],teams:[],teamCatalog:[],teamMode:false,students:[],enrollments:[],requirements:[],definitions:[],seasonRules:[],requirementsMode:false,studentRequirements:[],dues:[],first:[],tab:'overview'};
+const state={api:null,user:null,org:null,role:null,season:null,seasons:[],teams:[],teamCatalog:[],teamMode:false,familyMode:false,studentContacts:[],familyHouseholds:[],familyGuardians:[],studentHouseholds:[],householdGuardians:[],studentGuardians:[],students:[],enrollments:[],requirements:[],definitions:[],seasonRules:[],requirementsMode:false,studentRequirements:[],dues:[],first:[],tab:'overview'};
 function message(text='',success=false){$('banner').replaceChildren();if(!text)return;const p=document.createElement('p');p.className='alert'+(success?' success':'');p.textContent=text;$('banner').appendChild(p)}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function option(value,label,selected=false){return '<option value="'+escapeHtml(value)+'"'+(selected?' selected':'')+'>'+escapeHtml(label)+'</option>'}
@@ -14,6 +14,12 @@ function teamLabel(t){return (t.team_number?t.team_number+' · ':'')+t.name}
 function teamHistory(t){return state.teams.filter(x=>x.catalog_team_id&&x.catalog_team_id===t.catalog_team_id)
  .sort((a,b)=>(state.seasons.find(x=>x.id===b.season_id)?.name||'').localeCompare(state.seasons.find(x=>x.id===a.season_id)?.name||''))}
 
+function guardianName(g){return [g.first_name,g.last_name].filter(Boolean).join(' ')}
+function studentContact(s){return state.studentContacts.find(x=>x.student_id===s.id)}
+function guardiansForStudent(id){return state.studentGuardians.filter(x=>x.student_id===id).map(x=>({link:x,guardian:state.familyGuardians.find(g=>g.id===x.guardian_id)})).filter(x=>x.guardian)}
+function householdsForStudent(id){return state.studentHouseholds.filter(x=>x.student_id===id).map(x=>({link:x,household:state.familyHouseholds.find(h=>h.id===x.household_id)})).filter(x=>x.household)}
+function familyReady(){requireAdmin();if(!state.familyMode)throw Error('Activate the Student and Households SQL migration first.')}
+function familyLabel(h){return h.display_name+(h.city?', '+h.city:'')}
 function activeEnrollments(){const ids=new Set(activeTeams().map(t=>t.id));return state.enrollments.filter(e=>ids.has(e.team_id)&&e.status!=='withdrawn')}
 function reqsFor(team){
  if(!state.requirementsMode) return state.requirements.filter(r=>r.season_id===state.season&&(!r.program||r.program===team.program));
@@ -50,6 +56,20 @@ $('requirement-table').innerHTML=rs.map(r=>'<tr><td>'+escapeHtml(r.display_name|
 $('requirement-empty').textContent=rs.length?'':'No requirements for this season.';
 $('definition-table').innerHTML=state.definitions.map(d=>'<tr><td>'+escapeHtml(d.name)+'</td><td>'+escapeHtml(d.requirement_type)+'</td><td>'+(d.is_active?'Active':'Archived')+'</td><td><button class="small secondary admin-only" data-action="edit-definition" data-id="'+d.id+'">Edit catalog</button></td></tr>').join('');
 $('definition-empty').textContent=state.requirementsMode&&!state.definitions.length?'No catalog entries yet.':'';
+$('tab-families-nav').classList.toggle('hidden',state.role!=='admin'||!state.familyMode);
+$('families-info').textContent=state.familyMode?
+ 'Permanent contact records shared across seasons. Only administrators can access these records.':
+ 'Activate the Student and Households database migration to manage family contacts.';
+$('household-table').innerHTML=state.familyHouseholds.map(h=>{
+ const children=state.studentHouseholds.filter(link=>link.household_id===h.id).length;
+ return '<tr><td>'+escapeHtml(h.display_name)+'</td><td>'+escapeHtml([h.city,h.state_region].filter(Boolean).join(', '))+'</td><td>'+children+'</td><td><button class="small secondary admin-only" data-action="household-detail" data-id="'+h.id+'">Manage</button></td></tr>';
+}).join('');
+$('household-empty').textContent=state.familyHouseholds.length?'':'No households yet.';
+$('guardian-table').innerHTML=state.familyGuardians.map(g=>{
+ const links=state.studentGuardians.filter(link=>link.guardian_id===g.id).length;
+ return '<tr><td>'+escapeHtml(guardianName(g))+'</td><td>'+escapeHtml(g.email||'—')+'</td><td>'+links+'</td><td><button class="small secondary admin-only" data-action="guardian-detail" data-id="'+g.id+'">Manage</button></td></tr>';
+}).join('');
+$('guardian-empty').textContent=state.familyGuardians.length?'':'No guardians yet.';
 document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',state.role!=='admin'));$('team-add-existing').classList.toggle('hidden',state.role!=='admin'||!state.teamMode)}
 async function fetchData(){const org=state.org.id;const queries=[['seasons',state.api.from('seasons').select('*').eq('organization_id',org).order('name',{ascending:false})],['teams',state.api.from('teams').select('*').eq('organization_id',org).order('name')],['students',state.api.from('students').select('*').eq('organization_id',org).order('last_name')],['enrollments',state.api.from('team_enrollments').select('*').eq('organization_id',org)],['requirements',state.api.from('requirements').select('*').eq('organization_id',org)],['studentRequirements',state.api.from('student_requirements').select('*').eq('organization_id',org)],['dues',state.api.from('student_dues').select('*').eq('organization_id',org)],['first',state.api.from('first_registrations').select('*').eq('organization_id',org)]];const results=await Promise.all(queries.map(async ([key,q])=>[key,check(await q.limit(1000))]));for(const [key,data]of results)state[key]=data;
 const [defs,rules]=await Promise.all([
@@ -68,6 +88,32 @@ if(!catalog.error){state.teamCatalog=catalog.data||[];state.teamMode=true;}
 else if(['PGRST205','42P01','PGRST204'].includes(catalog.error.code)){
  state.teamCatalog=[];state.teamMode=false;
 }else throw catalog.error;
+if(state.role==='admin'){
+ const names=[
+  ['studentContacts','student_contact_profiles'],
+  ['familyHouseholds','family_households'],
+  ['familyGuardians','family_guardians'],
+  ['studentHouseholds','student_household_links'],
+  ['householdGuardians','household_guardian_links'],
+  ['studentGuardians','student_guardian_links']
+ ];
+ const requests=await Promise.all(names.map(async ([key,table])=>({key,result:await state.api.from(table).select('*').eq('organization_id',org).limit(1000)})));
+ const missing=['PGRST205','42P01','PGRST204'];
+ const absent=requests.every(x=>x.result.error&&missing.includes(x.result.error.code));
+ if(absent){
+  state.familyMode=false;
+  for(const {key} of requests)state[key]=[];
+ }else{
+  for(const {key,result} of requests){
+   if(result.error)throw result.error;
+   state[key]=result.data||[];
+  }
+  state.familyMode=true;
+ }
+}else{
+ state.familyMode=false;
+ for(const key of ['studentContacts','familyHouseholds','familyGuardians','studentHouseholds','householdGuardians','studentGuardians'])state[key]=[];
+}
 const previous=state.season;state.season=state.seasons.some(s=>s.id===previous)?previous:(state.seasons.find(s=>s.is_active)||state.seasons[0])?.id||null;$('season-filter').innerHTML=state.seasons.map(s=>option(s.id,s.name,s.id===state.season)).join('');render()}
 async function begin(){message();try{const {data:{user},error}=await state.api.auth.getUser();if(error)throw error;if(!user){display('login');return}state.user=user;const memberships=check(await state.api.from('memberships').select('organization_id,role').eq('user_id',user.id));if(!memberships.length)throw Error('Your account has no organization membership. Ask an administrator to grant access.');const membership=memberships[0];const orgs=check(await state.api.from('organizations').select('id,name').eq('id',membership.organization_id).single());state.org=orgs;state.role=membership.role;$('who').textContent=user.email;display('workspace');await fetchData()}catch(err){display('login');message(err.message)}}
 function modal(title,html){$('modal-title').textContent=title;$('modal-content').innerHTML=html;$('modal').classList.remove('hidden')}
