@@ -54,7 +54,7 @@ create table if not exists public.season_requirements (
     references public.requirement_definitions(id,organization_id),
   foreign key (season_id,organization_id)
     references public.seasons(id,organization_id),
-  constraint season_requirements_scope_check check (
+  constraint season_requirements_scope_fields_check check (
     (scope='all' and program is null and team_id is null)
     or (scope='program' and program is not null and team_id is null)
     or (scope='team' and team_id is not null and program is null)
