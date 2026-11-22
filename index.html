@@ -1,48 +1,18 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mayhem Robotics Roster Manager</title>
-<style>
-:root{font-family:system-ui,-apple-system,sans-serif;color:#17373b;background:#f3f8f8}*{box-sizing:border-box}body{margin:0}header{background:#08636b;color:white;padding:18px max(16px,calc((100vw - 1100px)/2));display:flex;align-items:center;justify-content:space-between;gap:12px}h1{margin:0;font-size:1.35rem}main{max-width:1100px;margin:26px auto;padding:0 16px}.card{background:white;border:1px solid #d8e6e8;border-radius:14px;padding:22px;margin-bottom:18px}.hidden{display:none!important}.muted{color:#567176}form{display:grid;gap:14px;max-width:480px}label{display:grid;gap:6px;font-weight:600}input,button{font:inherit;padding:11px;border-radius:8px;border:1px solid #a9c4c7}button{cursor:pointer;background:#087d83;border:0;color:white;font-weight:650}button.secondary{background:#deeeee;color:#075b63}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.stat{background:#e9f4f4;padding:16px;border-radius:12px}.stat b{font-size:2rem;color:#076b73}.toolbar{display:flex;gap:10px;flex-wrap:wrap}.toolbar input{flex:1;min-width:170px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid #e2eded}th{font-size:.85rem;color:#516c71}.overflow{overflow:auto}#notice{color:#ad3535;white-space:pre-wrap}small{font-size:.8rem}
-</style>
-</head>
-<body>
-<header><div><h1>Mayhem Robotics</h1><small>Roster Manager · Preview</small></div><button id="logout" class="secondary hidden">Sign out</button></header>
-<main>
-<p id="notice" role="alert" aria-live="polite"></p>
-<section id="setup" class="card">
-<h2>Connect Supabase</h2><p class="muted">Enter your project's public publishable or anon key. Never enter a secret or service-role key.</p>
-<form id="setup-form"><label>Supabase project URL<input id="url" type="url" value="https://uemwlhrlzjmviuqbazeu.supabase.co" required></label>
-<label>Publishable / anon key<input id="key" required autocomplete="off" placeholder="sb_publishable_…"></label><button>Connect</button></form>
-</section>
-<section id="login" class="card hidden">
-<h2>Administrator sign in</h2><p class="muted">Use the app user created in Supabase Authentication.</p>
-<form id="login-form"><label>Email<input id="email" type="email" autocomplete="username" required></label><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button>Sign in</button></form>
-<p><button id="change" class="secondary">Change Supabase settings</button></p>
-</section>
-<section id="dashboard" class="hidden">
-<div class="card"><h2>Roster overview</h2><div class="stats"><div class="stat"><b id="n-students">0</b><div>Students</div></div><div class="stat"><b id="n-teams">0</b><div>Teams</div></div><div class="stat"><b id="n-enrollments">0</b><div>Team enrollments</div></div></div></div>
-<div class="card"><h2>Students</h2><div class="toolbar"><input id="search" aria-label="Search students" placeholder="Search students"><button id="refresh">Refresh</button></div><div class="overflow"><table><thead><tr><th>Name</th><th>Status</th></tr></thead><tbody id="student-rows"></tbody></table></div><p id="no-students" class="muted"></p></div>
-<div class="card"><h2>Teams</h2><div class="overflow"><table><thead><tr><th>Team</th><th>Program</th><th>Number</th></tr></thead><tbody id="team-rows"></tbody></table></div><p id="no-teams" class="muted"></p></div>
-<p class="muted">This is an initial, read-only release. Student editing, requirements, dues, FIRST registration, and Excel import/export are not yet implemented. Do not enter real student records until security testing is complete.</p>
-</section>
-</main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script>
-'use strict';
-const $=id=>document.getElementById(id);
-let api,students=[],teams=[];
-function show(id){for(const s of ['setup','login','dashboard'])$(s).classList.toggle('hidden',s!==id);$('logout').classList.toggle('hidden',id!=='dashboard')}
-function notice(text=''){$('notice').textContent=text}
-function cell(row,value){const td=document.createElement('td');td.textContent=value??'';row.appendChild(td)}
-function render(){const term=$('search').value.toLowerCase().trim();const filtered=students.filter(s=>[s.first_name,s.last_name,s.preferred_name].join(' ').toLowerCase().includes(term));$('student-rows').replaceChildren();$('team-rows').replaceChildren();for(const s of filtered){const row=document.createElement('tr');cell(row,(s.preferred_name||s.first_name)+' '+s.last_name);cell(row,s.is_active?'Active':'Inactive');$('student-rows').appendChild(row)}for(const t of teams){const row=document.createElement('tr');cell(row,t.name);cell(row,t.program);cell(row,t.team_number);$('team-rows').appendChild(row)}$('n-students').textContent=students.length;$('n-teams').textContent=teams.length;$('no-students').textContent=filtered.length?'':'No matching students.';$('no-teams').textContent=teams.length?'':'No teams created yet.'}
-async function load(){notice();try{const [a,b,c]=await Promise.all([api.from('students').select('first_name,last_name,preferred_name,is_active').order('last_name').limit(1000),api.from('teams').select('name,program,team_number').order('name').limit(1000),api.from('team_enrollments').select('id',{count:'exact',head:true})]);for(const r of [a,b,c])if(r.error)throw r.error;students=a.data||[];teams=b.data||[];$('n-enrollments').textContent=c.count??0;render()}catch(e){notice('Roster load failed: '+e.message)}}
-async function connect(){const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');if(!url||!key){show('setup');return}try{api=supabase.createClient(url,key);const {data,error}=await api.auth.getSession();if(error)throw error;if(data.session){show('dashboard');await load()}else show('login')}catch(e){notice(e.message);show('setup')}}
-$('setup-form').addEventListener('submit',async e=>{e.preventDefault();const key=$('key').value.trim();if(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ')){notice('Use a publishable or legacy anon key, not a secret key.');return}localStorage.setItem('mayhem-url',$('url').value.trim());localStorage.setItem('mayhem-key',key);notice();await connect()});
-$('login-form').addEventListener('submit',async e=>{e.preventDefault();notice();const {error}=await api.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error){notice(error.message);return}$('password').value='';show('dashboard');await load()});
-$('logout').addEventListener('click',async()=>{await api.auth.signOut();students=[];teams=[];show('login');notice()});
-$('change').addEventListener('click',()=>{show('setup');$('url').value=localStorage.getItem('mayhem-url')||'';$('key').value=''});
-$('search').addEventListener('input',render);$('refresh').addEventListener('click',load);
-connect();
-</script></body></html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Mayhem Robotics | Roster Manager</title><link rel="stylesheet" href="./styles.css"></head>
+<body><header><div><h1>Mayhem Robotics</h1><div class="subtitle">Team Roster Manager · Early access</div></div><div class="inline"><span id="who" class="subtitle"></span><button id="signout" class="secondary small hidden">Sign out</button></div></header>
+<div id="banner" aria-live="polite"></div><main class="container">
+<section id="setup" class="auth"><div class="card"><h2>Connect to Supabase</h2><p class="muted">Use the project's public publishable/anon key — never a secret or service-role key.</p><form id="setup-form"><label>Project URL<input id="project-url" type="url" required value="https://uemwlhrlzjmviuqbazeu.supabase.co"></label><label>Publishable key<input id="project-key" required autocomplete="off" spellcheck="false"></label><button>Connect</button></form></div></section>
+<section id="login" class="auth hidden"><div class="card"><h2>Sign in</h2><p class="muted">Use your roster application account from Supabase Authentication.</p><form id="login-form"><label>Email<input id="login-email" type="email" autocomplete="username" required></label><label>Password<input id="login-password" type="password" autocomplete="current-password" required></label><button>Sign in</button></form><p><button id="config-button" class="secondary small">Change connection settings</button></p></div></section>
+<section id="workspace" class="hidden">
+<div class="card"><div class="bar"><div><h2>Roster administration</h2><div id="membership-label" class="muted note"></div></div><div class="controls"><label>Season<select id="season-filter"></select></label><button id="reload" class="secondary">Refresh</button></div></div><nav class="nav" aria-label="Main navigation"><button data-tab="overview" class="active">Overview</button><button data-tab="teams">Teams</button><button data-tab="students">Students</button><button data-tab="requirements">Requirements</button></nav></div>
+<div id="tab-overview" class="tab"><div class="stats"><div class="stat"><strong id="count-students">0</strong><span>Students in season</span></div><div class="stat"><strong id="count-teams">0</strong><span>Teams</span></div><div class="stat"><strong id="count-enrollments">0</strong><span>Enrollments</span></div><div class="stat"><strong id="count-not-ready">0</strong><span>Outstanding items</span></div></div><div class="card" style="margin-top:16px"><h2>Season overview</h2><div id="overview-info" class="muted"></div><p class="note muted">A student may belong to more than one team; enrollment and requirement counts are team-specific.</p></div></div>
+<div id="tab-teams" class="tab hidden"><div class="card"><div class="bar"><h2>Teams</h2><button data-action="add-team" class="admin-only">+ Add team</button></div><div class="overflow"><table><thead><tr><th>Team name</th><th>Program</th><th>Number</th><th>Students</th><th></th></tr></thead><tbody id="team-table"></tbody></table></div><p id="team-empty" class="empty"></p></div></div>
+<div id="tab-students" class="tab hidden"><div class="card"><div class="bar"><h2>Students</h2><button data-action="add-student" class="admin-only">+ Add student</button></div><div class="controls"><input id="student-search" placeholder="Search students" aria-label="Search students"><select id="team-filter" aria-label="Filter team"></select></div><div class="overflow"><table><thead><tr><th>Student</th><th>Teams</th><th>Forms</th><th>Dues</th><th>FIRST</th><th></th></tr></thead><tbody id="student-table"></tbody></table></div><p id="student-empty" class="empty"></p></div></div>
+<div id="tab-requirements" class="tab hidden"><div class="card"><div class="bar"><h2>Season requirements</h2><button data-action="add-requirement" class="admin-only">+ Add requirement</button></div><p class="muted note">Program blank = all programs. Requirements are tracked separately for every team enrollment.</p><div class="overflow"><table><thead><tr><th>Requirement</th><th>Type</th><th>Program</th><th>Required</th><th></th></tr></thead><tbody id="requirement-table"></tbody></table></div><p id="requirement-empty" class="empty"></p></div></div>
+<p class="muted note">Early access · Use fictional students until the access-control checks in the README have been completed. No real student data should be imported yet.</p>
+</section></main>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-panel"><div class="bar"><h2 id="modal-title"></h2><button type="button" id="close-modal" class="ghost small">Close</button></div><div id="modal-content"></div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script><script src="./app.js" defer></script></body></html>
