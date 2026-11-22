@@ -216,6 +216,179 @@ function teamForm(id){
   }
  });
 }
+function householdForm(id){
+ familyReady();
+ const h=state.familyHouseholds.find(x=>x.id===id);
+ if(id&&!h)throw Error('Household not found.');
+ const html='<form id="household-form"><div class="form-grid">'
+  +field('Household label','display_name',h?.display_name||'',true)
+  +field('Address line 1','address_line1',h?.address_line1||'')
+  +field('Address line 2','address_line2',h?.address_line2||'')
+  +field('City','city',h?.city||'')
+  +field('State','state_region',h?.state_region||'')
+  +field('Postal code','postal_code',h?.postal_code||'')
+  +field('Country','country',h?.country||'US')
+  +'</div><label>Administrative notes<textarea name="notes" rows="2">'+escapeHtml(h?.notes||'')+'</textarea></label>'
+  +actions()+'</form>';
+ modal(h?'Edit household':'Add household',html);
+ $('household-form').onsubmit=e=>saveForm(e,async f=>{
+  const name=f.get('display_name').trim();
+  if(!name)throw Error('Enter a household label.');
+  const keys=['address_line1','address_line2','city','state_region','postal_code','country','notes'];
+  const payload={display_name:name};
+  for(const k of keys)payload[k]=f.get(k).trim()||(k==='country'?'US':null);
+  if(h)check(await state.api.from('family_households').update(payload).eq('id',h.id).eq('organization_id',state.org.id));
+  else check(await state.api.from('family_households').insert({...payload,organization_id:state.org.id}));
+ });
+}
+function guardianForm(id){
+ familyReady();
+ const g=state.familyGuardians.find(x=>x.id===id);
+ if(id&&!g)throw Error('Guardian not found.');
+ const html='<form id="guardian-form"><div class="form-grid">'
+  +field('First name','first_name',g?.first_name||'',true)
+  +field('Last name','last_name',g?.last_name||'',true)
+  +field('Email','email',g?.email||'')
+  +field('Phone','phone',g?.phone||'')
+  +'</div><label>Administrative notes<textarea name="notes" rows="2">'+escapeHtml(g?.notes||'')+'</textarea></label>'
+  +actions()+'</form>';
+ modal(g?'Edit guardian':'Add guardian',html);
+ $('guardian-form').onsubmit=e=>saveForm(e,async f=>{
+  const payload={first_name:f.get('first_name').trim(),last_name:f.get('last_name').trim(),
+    email:f.get('email').trim()||null,phone:f.get('phone').trim()||null,
+    notes:f.get('notes').trim()||null};
+  if(!payload.first_name||!payload.last_name)throw Error('Enter the guardian name.');
+  if(g)check(await state.api.from('family_guardians').update(payload).eq('id',g.id).eq('organization_id',state.org.id));
+  else check(await state.api.from('family_guardians').insert({...payload,organization_id:state.org.id}));
+ });
+}
+function studentContactForm(id){
+ familyReady();
+ const st=state.students.find(x=>x.id===id);
+ if(!st)throw Error('Student not found.');
+ const existing=studentContact(st);
+ const html='<p class="muted">Contact details are permanent and do not reset each school year. Birth dates and contact information are visible to administrators only.</p>'
+ +'<form id="student-contact-form"><div class="form-grid">'
+ +'<label>Date of birth<input type="date" name="birth_date" value="'+escapeHtml(existing?.birth_date||'')+'"></label>'
+ +field('Student email','email',existing?.email||'')
+ +field('Student mobile','mobile_phone',existing?.mobile_phone||'')
+ +field('Mayhem email address','mayhem_email',existing?.mayhem_email||'')
+ +'</div>'+actions()+'</form>';
+ modal('Contact profile — '+name(st),html);
+ $('student-contact-form').onsubmit=e=>saveForm(e,async f=>{
+  const payload={organization_id:state.org.id,student_id:id,birth_date:f.get('birth_date')||null,
+   email:f.get('email').trim()||null,mobile_phone:f.get('mobile_phone').trim()||null,
+   mayhem_email:f.get('mayhem_email').trim()||null,updated_at:new Date().toISOString()};
+  check(await state.api.from('student_contact_profiles').upsert(payload,{onConflict:'student_id'}));
+ });
+}
+function familyLinkForm(kind,sourceId){
+ familyReady();
+ const specs={
+  studentHousehold:{table:'student_household_links',source:'student_id',target:'household_id',
+   candidates:state.familyHouseholds,existing:state.studentHouseholds,
+   label:h=>familyLabel(h),title:'Link student to household'},
+  householdStudent:{table:'student_household_links',source:'household_id',target:'student_id',
+   candidates:state.students,existing:state.studentHouseholds,
+   label:st=>name(st),title:'Add student to household'},
+  studentGuardian:{table:'student_guardian_links',source:'student_id',target:'guardian_id',
+   candidates:state.familyGuardians,existing:state.studentGuardians,
+   label:g=>guardianName(g),title:'Link guardian to student'},
+  guardianStudent:{table:'student_guardian_links',source:'guardian_id',target:'student_id',
+   candidates:state.students,existing:state.studentGuardians,
+   label:st=>name(st),title:'Link guardian to student'},
+  householdGuardian:{table:'household_guardian_links',source:'household_id',target:'guardian_id',
+   candidates:state.familyGuardians,existing:state.householdGuardians,
+   label:g=>guardianName(g),title:'Add guardian to household'},
+  guardianHousehold:{table:'household_guardian_links',source:'guardian_id',target:'household_id',
+   candidates:state.familyHouseholds,existing:state.householdGuardians,
+   label:h=>familyLabel(h),title:'Add guardian to household'}
+ };
+ const config=specs[kind];if(!config)throw Error('Unknown relationship type.');
+ const unavailable=new Set(config.existing.filter(link=>link[config.source]===sourceId).map(link=>link[config.target]));
+ const available=config.candidates.filter(c=>!unavailable.has(c.id));
+ if(!available.length)throw Error('There are no additional records to link. Create the relevant student, household, or guardian first.');
+ const extra=config.table==='student_guardian_links'?
+  '<label>Relationship (optional)<input name="relationship" placeholder="Parent, guardian, other"></label>'
+  +'<label class="inline"><input type="checkbox" name="is_primary_contact" value="yes"> Primary contact</label>'
+  +'<label class="inline"><input type="checkbox" name="emergency_contact" value="yes"> Emergency contact</label>'
+  :config.table==='student_household_links'?
+  '<label class="inline"><input type="checkbox" name="is_primary" value="yes"> Primary household (only one per student)</label>':'';
+ const html='<form id="family-link-form"><label>Select existing record<select name="target">'
+ +available.map(c=>option(c.id,config.label(c))).join('')+'</select></label>'
+ +extra+actions()+'</form>';
+ modal(config.title,html);
+ $('family-link-form').onsubmit=e=>saveForm(e,async f=>{
+  const targetId=f.get('target');
+  if(!available.some(x=>x.id===targetId))throw Error('Select an available record.');
+  const payload={organization_id:state.org.id,[config.source]:sourceId,[config.target]:targetId};
+  if(config.table==='student_household_links'){
+   payload.is_primary=f.get('is_primary')==='yes';
+   if(payload.is_primary){
+    const studentId=payload.student_id;
+    if(state.studentHouseholds.some(link=>link.student_id===studentId&&link.is_primary))
+     throw Error('This student already has a primary household. Add this as a secondary household.');
+   }
+  }
+  if(config.table==='student_guardian_links'){
+   payload.relationship=f.get('relationship').trim()||null;
+   payload.is_primary_contact=f.get('is_primary_contact')==='yes';
+   payload.emergency_contact=f.get('emergency_contact')==='yes';
+  }
+  check(await state.api.from(config.table).insert(payload));
+ });
+}
+function confirmFamilyUnlink(kind,id){
+ familyReady();
+ const targets={
+  sh:'student_household_links',sg:'student_guardian_links',hg:'household_guardian_links'
+ };
+ const table=targets[kind];if(!table)throw Error('Unknown relationship.');
+ const html='<p>Remove this relationship? This does not delete the student, guardian, or household.</p>'
+ +'<form id="unlink-form">'+actions().replace('>Save</button>','>Remove relationship</button>')+'</form>';
+ modal('Remove relationship',html);
+ $('unlink-form').onsubmit=e=>saveForm(e,async f=>{
+  check(await state.api.from(table).delete().eq('id',id).eq('organization_id',state.org.id));
+ });
+}
+function householdDetail(id){
+ familyReady();
+ const h=state.familyHouseholds.find(x=>x.id===id);
+ if(!h)throw Error('Household not found.');
+ const children=state.studentHouseholds.filter(x=>x.household_id===id);
+ const adults=state.householdGuardians.filter(x=>x.household_id===id);
+ let html='<div class="bar"><h3>'+escapeHtml(h.display_name)+'</h3>'
+  +'<button class="small secondary admin-only" data-action="edit-household" data-id="'+h.id+'">Edit address</button></div>'
+  +'<p class="muted">'+escapeHtml([h.address_line1,h.address_line2,h.city,h.state_region,h.postal_code].filter(Boolean).join(', ')||'No address recorded')+'</p>'
+  +'<div class="section"><div class="bar"><h3>Students</h3><button class="small secondary admin-only" data-action="link-household-student" data-id="'+h.id+'">+ Add existing student</button></div>'
+  +children.map(link=>{const st=state.students.find(x=>x.id===link.student_id);
+   return '<div class="bar"><span>'+escapeHtml(st?name(st):'Unknown student')+(link.is_primary?' (primary)':'')+'</span><button class="small secondary" data-action="unlink-sh" data-id="'+link.id+'">Unlink</button></div>';
+  }).join('')+'</div>'
+  +'<div class="section"><div class="bar"><h3>Guardians</h3><button class="small secondary admin-only" data-action="link-household-guardian" data-id="'+h.id+'">+ Add existing guardian</button></div>'
+  +adults.map(link=>{const g=state.familyGuardians.find(x=>x.id===link.guardian_id);
+   return '<div class="bar"><span>'+escapeHtml(g?guardianName(g):'Unknown guardian')+'</span><button class="small secondary" data-action="unlink-hg" data-id="'+link.id+'">Unlink</button></div>';
+  }).join('')+'</div>';
+ modal('Household',html);
+}
+function guardianDetail(id){
+ familyReady();
+ const g=state.familyGuardians.find(x=>x.id===id);
+ if(!g)throw Error('Guardian not found.');
+ const students=state.studentGuardians.filter(x=>x.guardian_id===id);
+ const homes=state.householdGuardians.filter(x=>x.guardian_id===id);
+ let html='<div class="bar"><h3>'+escapeHtml(guardianName(g))+'</h3>'
+  +'<button class="small secondary admin-only" data-action="edit-guardian" data-id="'+g.id+'">Edit contact</button></div>'
+  +'<p class="muted">'+escapeHtml([g.email,g.phone].filter(Boolean).join(' · ')||'No contact details recorded')+'</p>'
+  +'<div class="section"><div class="bar"><h3>Students</h3><button class="small secondary admin-only" data-action="link-guardian-student" data-id="'+g.id+'">+ Link student</button></div>'
+  +students.map(link=>{const st=state.students.find(x=>x.id===link.student_id);
+   return '<div class="bar"><span>'+escapeHtml(st?name(st):'Unknown student')+(link.relationship?' · '+escapeHtml(link.relationship):'')+'</span><button class="small secondary" data-action="unlink-sg" data-id="'+link.id+'">Unlink</button></div>';
+  }).join('')+'</div>'
+  +'<div class="section"><div class="bar"><h3>Households</h3><button class="small secondary admin-only" data-action="link-guardian-household" data-id="'+g.id+'">+ Link household</button></div>'
+  +homes.map(link=>{const h=state.familyHouseholds.find(x=>x.id===link.household_id);
+   return '<div class="bar"><span>'+escapeHtml(h?h.display_name:'Unknown household')+'</span><button class="small secondary" data-action="unlink-hg" data-id="'+link.id+'">Unlink</button></div>';
+  }).join('')+'</div>';
+ modal('Guardian',html);
+}
 function studentForm(id){requireAdmin();const s=state.students.find(x=>x.id===id), available=activeTeams();if(!s&&!available.length)throw Error('Create a team before adding students.');const teamField=s?'':'<label class="wide">Initial team<select name="initial_team">'+available.map(t=>option(t.id,t.name)).join('')+'</select></label>';const html='<form id="student-form"><div class="form-grid">'+field('First name','first_name',s?.first_name,true)+field('Last name','last_name',s?.last_name,true)+field('Preferred name (optional)','preferred_name',s?.preferred_name)+'<label>Status<select name="is_active">'+option('true','Active',s?.is_active!==false)+option('false','Inactive',s?.is_active===false)+'</select></label>'+teamField+'</div>'+actions()+'</form>';modal(s?'Edit student':'Add student',html);$('student-form').onsubmit=e=>saveForm(e,async f=>{const payload={organization_id:state.org.id,first_name:f.get('first_name').trim(),last_name:f.get('last_name').trim(),preferred_name:f.get('preferred_name').trim()||null,is_active:f.get('is_active')==='true'};if(s){check(await state.api.from('students').update(payload).eq('id',id))}else{const created=check(await state.api.from('students').insert(payload).select('id').single());check(await state.api.from('team_enrollments').insert({organization_id:state.org.id,student_id:created.id,team_id:f.get('initial_team'),status:'active'}))}})}
 function seasonForm(){
  requireAdmin();
