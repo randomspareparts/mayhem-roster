@@ -684,10 +684,11 @@ async function init(){
  // Routing takes priority over existing authentication, including expired
  // viewer sessions or a temporary failure while exchanging a recovery code.
  if(recoveryMode)recoveryScreen(null,'Checking the password recovery session…');
- const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');
+ const url=window.MAYHEM_PUBLIC_CONFIG?.url;
+ const key=window.MAYHEM_PUBLIC_CONFIG?.publishableKey;
  if(!url||!key){
-  display('setup');
-  message('Connect this browser to the project first. Then return to the password recovery link.');
+  display('login');
+  message('The public Supabase configuration did not load. Refresh the page or contact the site administrator.');
   return;
  }
  try{
