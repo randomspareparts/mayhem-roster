@@ -16,7 +16,10 @@ GitHub Settings > Pages > Deploy from a branch > main / (root).
 App: https://randomspareparts.github.io/mayhem-roster/
 
 ## Connection
-Use only your Supabase publishable (or legacy anon) key with the Supabase project URL. Never put a service-role key, secret key, database password, student information, or roster export in this public repository. Login with the Supabase Authentication user assigned an admin membership.
+
+The static app now bundles `config.js` with the **public project URL and publishable key**, so new phones/browsers go directly to the sign-in page without a one-time connection form. The standalone `reset.html` recovery page uses the same configuration.
+
+A publishable key is designed for public browser use; it **is not an admin credential**. All confidential student/guardian information must remain protected by Supabase Authentication and correctly tested Row Level Security. Never put a service-role key, secret key, database password, student information, or roster export in this public repository. Login with the Supabase Authentication user assigned an admin membership.
 
 ## Atomic row import migration — November 27, 2026
 
