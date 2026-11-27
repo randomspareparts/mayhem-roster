@@ -198,69 +198,30 @@
   }
  }
  async function saveOne(row,choice,team){
-  const record=row.record,mode=chosenAction(choice),match=candidateMatches(row);
-  if(!mode)throw Error('Select Create or Match.');
-  const dob=dateValue(record.birth);
-  let student;
-  if(mode.kind==='create'){
-   if(!canCreate(row))throw Error('Full student name is required.');
-   if(match.length)throw Error('Potential duplicate exists; explicitly select Match.');
-   const parts=splitName(record.name);
-   student=check(await state.api.from('students').insert({
-    organization_id:state.org.id,first_name:parts.first,last_name:parts.last,
-    is_active:key(record.category)!=='inactive'
-   }).select('*').single());
-   state.students.push(student);
-  }else{
-   student=state.students.find(x=>x.id===mode.id);
-   if(!student||!match.some(s=>s.id===student.id))throw Error('Existing student match changed. Refresh and preview again.');
-   const currentDOB=state.studentContacts.find(c=>c.student_id===student.id)?.birth_date;
-   if(currentDOB&&dob&&currentDOB!==dob)throw Error('Birth date conflict with existing student.');
+  const mode=chosenAction(choice);
+  if(!mode)throw Error('Choose Create or Match.');
+  // This is a single database transaction, implemented by the SQL RPC.
+  // Never fall back to the old multi-request write sequence: that could
+  // leave partially imported students/registrations after a failure.
+  const {data,error}=await state.api.rpc('import_reviewed_roster_row',{
+   p_organization_id:state.org.id,
+   p_season_id:state.season,
+   p_team_id:team.id,
+   p_source_name:imp.filename,
+   p_source_sheet:imp.sheet,
+   p_source_row:row.line,
+   p_source_fingerprint:sourceFingerprint(row),
+   p_source:row.record,
+   p_match_student_id:mode.kind==='match'?mode.id:null
+  });
+  if(error){
+   if(['PGRST202','42883'].includes(error.code))
+    throw Error('Atomic import migration has not been applied. No row was written.');
+   throw error;
   }
-  const currentContact=state.studentContacts.find(c=>c.student_id===student.id);
-  if(!currentContact){
-   const email=record.email||null;
-   const savedContact=check(await state.api.from('student_contact_profiles').insert({
-    organization_id:state.org.id,student_id:student.id,birth_date:dob,
-    email,mobile_phone:record.mobile||null,
-    mayhem_email:record.mayhemEmail&&yes(record.mayhemEmail)?
-      (email&&email.toLowerCase().endsWith('@mayhemrobotics.org')?email:null):null
-   }).select('*').single());
-   state.studentContacts.push(savedContact);
-  }
-  let enrollment=state.enrollments.find(e=>e.student_id===student.id&&e.team_id===team.id);
-  const isConfirmed=key(record.category)==='confirmed member';
-  if(isConfirmed&&!enrollment){
-   enrollment=check(await state.api.from('team_enrollments').insert({
-    organization_id:state.org.id,student_id:student.id,team_id:team.id,
-    status:key(record.followup)==='confirmed'?'active':'pending'
-   }).select('*').single());
-   state.enrollments.push(enrollment);
-  }
-  if(isConfirmed&&enrollment){
-   const status=record.first;
-   if((yes(status)||no(status))&&!state.first.some(x=>x.enrollment_id===enrollment.id)){
-    const saved=check(await state.api.from('first_registrations').insert({
-     organization_id:state.org.id,enrollment_id:enrollment.id,
-     status:yes(status)?'complete':'not_started',
-     verified_at:null // source says registered but gives no verification timestamp
-    }).select('*').single());
-    state.first.push(saved);
-   }
-   await applyRequirements(enrollment.id,team,record);
-  }
-  // Store full reviewed spreadsheet row in the private, admin-only audit table.
-  // Never infer dues amounts, household membership, or guardian identity from text.
-  check(await state.api.from('roster_import_records').insert({
-   organization_id:state.org.id,season_id:state.season,
-   team_id:enrollment?team.id:null,student_id:student.id,
-   source_name:imp.filename,source_sheet:imp.sheet,source_row:row.line,
-   source_fingerprint:sourceFingerprint(row),source_category:record.category||null,
-   source_followup:record.followup||null,source_fields:record._extra,
-   import_outcome:mode.kind==='create'?'created':'matched'
-  }));
+  if(!data?.student_id)throw Error('Import did not return a student ID; verify the server result.');
   imp.importedIds.add(sourceFingerprint(row));
-  return {student,enrollment};
+  return {student:{id:data.student_id},enrollment:data.enrollment_id?{id:data.enrollment_id}:null};
  }
  function validatePicks(picks,team){
   const errors=[],seenSourceNames=new Set(),seenStudents=new Set();
