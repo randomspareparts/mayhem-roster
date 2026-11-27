@@ -721,7 +721,7 @@ $('reset-request-form').onsubmit=async e=>{
  e.preventDefault();message();
  try{
   const email=$('reset-email').value.trim();
-  const redirectTo=new URL('./?mode=reset',window.location.href).href;
+  const redirectTo=new URL('./reset.html?type=recovery',window.location.href).href;
   const {error}=await state.api.auth.resetPasswordForEmail(email,{redirectTo});
   if(error)throw error;
   message('If this account exists, a recovery email has been sent. Open its link in this same browser.',true);
