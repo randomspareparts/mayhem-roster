@@ -39,15 +39,16 @@
 </div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="./config.js?v=20261127-auto"></script>
 <script>
 'use strict';
 (() => {
 const $ = id => document.getElementById(id);
-const PROJECT_URL='https://uemwlhrlzjmviuqbazeu.supabase.co';
+const PROJECT_URL=window.MAYHEM_PUBLIC_CONFIG?.url||'https://uemwlhrlzjmviuqbazeu.supabase.co';
 const params=new URLSearchParams(location.search);
 const hash=new URLSearchParams(location.hash.replace(/^#/,''));
 const hasRecoveryHint=params.get('type')==='recovery'||params.has('code')||hash.get('type')==='recovery'||hash.has('access_token');
-const keyName='mayhem-key';
+
 let api=null, recoveryEvent=false, recoverySession=null;
 const show=(id,yes)=>$(id).classList.toggle('hidden',!yes);
 function status(text,error=false){$('reset-status').textContent=text;$('reset-status').classList.toggle('error',error)}
@@ -64,7 +65,7 @@ async function connect(key) {
  if(!key||(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))) {
   show('setup-section',true);status('Enter a public publishable key to connect.',true);return;
  }
- localStorage.setItem(keyName,key);
+ // Project publishable key is provided by the public site configuration.
  // A separate storage key prevents a viewer's ordinary application login
  // from being treated as the administrator's password-recovery session.
  api=supabase.createClient(PROJECT_URL,key,{
@@ -134,9 +135,9 @@ $('request-form').onsubmit=async ev=>{
  }catch(err){status('Could not send email: '+err.message,true)}
  finally{btn.disabled=false}
 };
-const key=localStorage.getItem(keyName);
+const key=window.MAYHEM_PUBLIC_CONFIG?.publishableKey;
 if(key)connect(key);
-else{show('setup-section',true);status('Connect with the public Supabase publishable key first.')}
+else{show('setup-section',false);status('Site configuration did not load. Refresh the page.',true)}
 })();
 </script>
 </body></html>
