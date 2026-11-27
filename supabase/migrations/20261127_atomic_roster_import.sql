@@ -154,7 +154,7 @@ begin
   loop
    v_status=pg_catalog.lower(btrim(coalesce(p_source->>v_field,'')));
    if v_status not in ('yes','true','y','1','no','false','n','0') then continue; end if;
-   select count(*),min(sr.id) into v_rule_count,v_rule_id
+   select count(*),(array_agg(sr.id))[1] into v_rule_count,v_rule_id
    from public.season_requirements sr
    where sr.organization_id=p_organization_id and sr.season_id=p_season_id
     and sr.is_active
