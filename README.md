@@ -18,6 +18,32 @@ App: https://randomspareparts.github.io/mayhem-roster/
 ## Connection
 Use only your Supabase publishable (or legacy anon) key with the Supabase project URL. Never put a service-role key, secret key, database password, student information, or roster export in this public repository. Login with the Supabase Authentication user assigned an admin membership.
 
+## Atomic row import migration — November 27, 2026
+
+**Code committed, database migration NOT YET RUN.** The browser importer now
+requires [20261127_atomic_roster_import.sql](supabase/migrations/20261127_atomic_roster_import.sql)
+before any Create/Match write. The application will report a missing migration
+rather than falling back to multi-request writes.
+
+The new `import_reviewed_roster_row` PostgreSQL function runs with
+`SECURITY INVOKER`, checks `is_org_admin`, validates the target team,
+rejects duplicate source fingerprints and conflicting DOBs, and uses a
+transaction-scoped advisory lock. A failure rolls back **every change to that
+one source row**, including student/contact/enrollment/status/audit inserts.
+
+**This is NOT an all-or-nothing transaction across an entire workbook.**
+Rows imported before a later failed row remain committed and visible in
+the source-log table. These rows must be reconciled before retrying.
+It does not automatically create guardians, households or dollar dues from
+ambiguous spreadsheet fields. It skips annual forms whose names don't map
+to exactly one active requirement.
+
+Before using the function with **real children**, complete the actual
+non-admin session test, independent backup and verified restore, then
+test the function with the fictional sample. This migration can be run
+later when the administrator account is recovered. No GitHub commit
+applies a database migration automatically.
+
 ## Step 5: Production readiness (not yet verified)
 
 Follow the [Production Readiness Checklist](docs/production-readiness.md) and run
