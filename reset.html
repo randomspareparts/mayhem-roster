@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Mayhem Roster Manager — Reset Password</title>
+<link rel="stylesheet" href="./styles.css">
+<style>main{max-width:580px;margin:40px auto;padding:0 16px}.hidden{display:none!important}.card{padding:24px}.actions{display:flex;gap:8px;flex-wrap:wrap}.status{white-space:pre-line;margin:12px 0}.error{color:#a51d29}.info{color:inherit}input{max-width:100%}</style>
+</head>
+<body>
+<header><div><h1>Mayhem Robotics</h1><div class="subtitle">Account recovery</div></div></header>
+<main>
+<div class="card">
+<h2>Set a new password</h2>
+<p>This is a separate recovery page. It will only change the password of an account confirmed by a valid recovery link.</p>
+<p id="reset-status" class="status" role="status" aria-live="polite">Checking for a recovery session…</p>
+<p id="reset-identity" class="muted"></p>
+<div id="setup-section" class="hidden">
+<p>To use this page, enter the same public Supabase publishable key used by the Roster Manager. Never enter a database or service-role secret key.</p>
+<label>Publishable key<input id="publishable-key" type="text" autocomplete="off" spellcheck="false" placeholder="sb_publishable_…"></label>
+<div class="actions"><button id="connect">Connect to Supabase</button></div>
+</div>
+<div id="reset-form-section" class="hidden">
+<form id="new-password-form">
+<label>New password<input id="password" type="password" minlength="12" required autocomplete="new-password"></label>
+<label>Confirm new password<input id="confirm" type="password" minlength="12" required autocomplete="new-password"></label>
+<div class="actions"><button type="submit">Save new password</button></div>
+</form>
+</div>
+<div id="send-section" class="hidden">
+<p>You do not have an active recovery session on this page. You can request a new link after the email rate limit resets.</p>
+<form id="request-form">
+<label>Account email<input id="email" type="email" required autocomplete="email"></label>
+<div class="actions"><button type="submit">Send password reset email</button></div>
+</form>
+</div>
+<p><a href="./">Return to Roster Manager login</a></p>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+'use strict';
+(() => {
+const $ = id => document.getElementById(id);
+const PROJECT_URL='https://uemwlhrlzjmviuqbazeu.supabase.co';
+const params=new URLSearchParams(location.search);
+const hash=new URLSearchParams(location.hash.replace(/^#/,''));
+const hasRecoveryHint=params.get('type')==='recovery'||params.has('code')||hash.get('type')==='recovery'||hash.has('access_token');
+const keyName='mayhem-key';
+let api=null, recoveryEvent=false, recoverySession=null;
+const show=(id,yes)=>$(id).classList.toggle('hidden',!yes);
+function status(text,error=false){$('reset-status').textContent=text;$('reset-status').classList.toggle('error',error)}
+function setReady(session){
+ recoverySession=session;
+ $('reset-identity').textContent=session?.user?.email?
+ 'Account to reset: '+session.user.email:'';
+ show('reset-form-section',!!session);
+ show('send-section',!session);
+ if(session)status('Recovery session detected. Check the account email before setting the new password.');
+ else status('No valid recovery session detected. Opening this page alone cannot reset a password.',true);
+}
+async function connect(key) {
+ if(!key||(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))) {
+  show('setup-section',true);status('Enter a public publishable key to connect.',true);return;
+ }
+ localStorage.setItem(keyName,key);
+ // A separate storage key prevents a viewer's ordinary application login
+ // from being treated as the administrator's password-recovery session.
+ api=supabase.createClient(PROJECT_URL,key,{
+  auth:{storageKey:'mayhem-independent-recovery-v1',detectSessionInUrl:true,
+    autoRefreshToken:false,persistSession:true}
+ });
+ api.auth.onAuthStateChange((event,session)=>{
+  if(event==='PASSWORD_RECOVERY'){
+   recoveryEvent=true;
+   setReady(session);
+  }
+ });
+ try{
+  const {data,error}=await api.auth.getSession();
+  if(error)throw error;
+  // Only this isolated session is eligible. Without a URL callback or
+  // recovery event, do not attempt to reset another signed-in account.
+  if((hasRecoveryHint||recoveryEvent)&&data.session){
+   setReady(data.session);
+  }else if(data.session?.user&&sessionStorage.getItem('mayhem-reset-authorized')==='yes'){
+   setReady(data.session);
+  }else{
+   setReady(null);
+  }
+  if((hasRecoveryHint||recoveryEvent)&&data.session){
+   sessionStorage.setItem('mayhem-reset-authorized','yes');
+  }
+  show('setup-section',false);
+ }catch(err){status('Could not validate recovery link: '+err.message,true);
+ show('send-section',true);}
+}
+$('connect').onclick=()=>connect($('publishable-key').value.trim());
+$('new-password-form').onsubmit=async ev=>{
+ ev.preventDefault();
+ const password=$('password').value;
+ if(password!==$('confirm').value)return status('The passwords do not match.',true);
+ if(password.length<12)return status('Use at least 12 characters.',true);
+ if(!api||!recoverySession)return status('No verified recovery session. Request a fresh link.',true);
+ const btn=ev.submitter;btn.disabled=true;
+ try{
+  const {data,error}=await api.auth.getUser();
+  if(error)throw error;
+  if(!data.user||data.user.id!==recoverySession.user.id)
+   throw Error('Authenticated account changed. Start with a new recovery link.');
+  const updated=await api.auth.updateUser({password});
+  if(updated.error)throw updated.error;
+  sessionStorage.removeItem('mayhem-reset-authorized');
+  await api.auth.signOut();
+  recoverySession=null;
+  show('reset-form-section',false);show('send-section',false);
+  $('reset-identity').textContent='';
+  $('password').value='';$('confirm').value='';
+  history.replaceState(null,'','./reset.html');
+  status('Password changed successfully. Return to Roster Manager and sign in with the new password.');
+ }catch(err){status('Password could not be changed: '+err.message,true)}
+ finally{btn.disabled=false}
+};
+$('request-form').onsubmit=async ev=>{
+ ev.preventDefault();
+ if(!api)return status('Connect using your publishable key first.',true);
+ const btn=ev.submitter;btn.disabled=true;
+ try{
+  const redirectTo=new URL('./reset.html?type=recovery',location.href).href;
+  const {error}=await api.auth.resetPasswordForEmail($('email').value.trim(),{redirectTo});
+  if(error)throw error;
+  status('If the account exists, a password reset message was sent. Open the newest link.');
+ }catch(err){status('Could not send email: '+err.message,true)}
+ finally{btn.disabled=false}
+};
+const key=localStorage.getItem(keyName);
+if(key)connect(key);
+else{show('setup-section',true);status('Connect with the public Supabase publishable key first.')}
+})();
+</script>
+</body></html>
