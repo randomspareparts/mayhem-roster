@@ -74,7 +74,7 @@ begin
   raise exception 'Student must have a complete, unambiguous name';
  end if;
  v_first_name=btrim(pg_catalog.regexp_replace(v_name,' +[^ ]+$',''));
- v_last_name=pg_catalog.substring(v_name from '[^ ]+$');
+ v_last_name=pg_catalog.regexp_replace(v_name,'^.* ','');
  v_category=pg_catalog.lower(btrim(coalesce(p_source->>'category','')));
  if v_category not in ('confirmed member','inactive','prospect / follow up') then
   raise exception 'Unrecognized roster category: %',v_category;
