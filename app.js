@@ -665,24 +665,37 @@ function enrollmentDetail(id){const e=state.enrollments.find(x=>x.id===id),t=sta
  check(await state.api.from('student_requirements').upsert(payload,{
  onConflict:state.requirementsMode?'enrollment_id,season_requirement_id':'enrollment_id,requirement_id'}))}const money=k=>{const n=Number(f.get(k));if(!Number.isFinite(n)||n<0)throw Error('Amounts must be nonnegative numbers.');return n};check(await state.api.from('student_dues').upsert({organization_id:state.org.id,enrollment_id:id,amount_due:money('amount_due'),amount_paid:money('amount_paid'),amount_waived:money('amount_waived')},{onConflict:'enrollment_id'}));check(await state.api.from('first_registrations').upsert({organization_id:state.org.id,enrollment_id:id,status:f.get('first_status'),verified_at:f.get('first_status')==='complete'?new Date().toISOString():null},{onConflict:'enrollment_id'}))})}
 async function saveForm(event,fn){event.preventDefault();if(state.role!=='admin')return message('Not authorized.');const button=event.target.querySelector('button[type=submit]');if(button)button.disabled=true;try{await fn(new FormData(event.target));closeModal();await fetchData();message('Saved successfully.',true)}catch(err){message('Save failed: '+err.message)}finally{if(button)button.disabled=false}}
-let recoveryMode=location.hash.includes('type=recovery')||new URLSearchParams(location.search).get('type')==='recovery';
+// Recovery links may arrive as #type=recovery, ?code=... (PKCE), or
+// as a password-recovery event after the SDK consumes the URL.
+const initialQuery=new URLSearchParams(location.search);
+const initialHash=new URLSearchParams(location.hash.replace(/^#/,''));
+let recoveryMode=initialQuery.get('mode')==='reset'||
+ initialQuery.get('type')==='recovery'||initialHash.get('type')==='recovery'||
+ (initialQuery.has('code')&&initialQuery.get('mode')!=='login');
+let authRecoveryEvent=false;
+function recoveryScreen(session,warning=''){
+ recoveryMode=true;display('reset-password');
+ $('recovery-account').textContent=session?.user?.email?
+  'Account whose password will change: '+session.user.email:
+  'No verified recovery session detected yet.';
+ message(warning);
+}
 async function init(){
  const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');
  if(!url||!key){display('setup');return}
  try{
   state.api=supabase.createClient(url,key);
-  state.api.auth.onAuthStateChange(event=>{
+  state.api.auth.onAuthStateChange((event,session)=>{
    if(event==='PASSWORD_RECOVERY'){
-    recoveryMode=true;display('reset-password');message();
+    authRecoveryEvent=true;
+    recoveryScreen(session);
    }
   });
-  if(recoveryMode){
-   const {data,error}=await state.api.auth.getSession();
-   if(error)throw error;
-   if(data.session){display('reset-password');message();return}
-   // An exchanged recovery code may still be processing; keep the reset
-   // screen visible so the user doesn't land in the roster unexpectedly.
-   display('reset-password');message('If the recovery link has expired, request a new one.');
+  const {data,error}=await state.api.auth.getSession();
+  if(error)throw error;
+  if(recoveryMode||authRecoveryEvent){
+   recoveryScreen(data.session,
+    data.session?'':'The recovery link may have expired. A valid recovery session is required to change a password.');
    return;
   }
   await begin();
@@ -698,7 +711,7 @@ $('reset-request-form').onsubmit=async e=>{
  e.preventDefault();message();
  try{
   const email=$('reset-email').value.trim();
-  const redirectTo=new URL('./',window.location.href).origin+new URL('./',window.location.href).pathname;
+  const redirectTo=new URL('./?mode=reset',window.location.href).href;
   const {error}=await state.api.auth.resetPasswordForEmail(email,{redirectTo});
   if(error)throw error;
   message('If this account exists, a recovery email has been sent. Open its link in this same browser.',true);
@@ -712,7 +725,8 @@ $('reset-password-form').onsubmit=async e=>{
  try{
   const {data,error:sessionError}=await state.api.auth.getSession();
   if(sessionError)throw sessionError;
-  if(!data.session)throw Error('Recovery session missing or expired. Request a new reset link.');
+  if(!data.session)throw Error('Recovery session missing or expired. Request a new reset link after the email limit resets.');
+  if(!recoveryMode)throw Error('This is not a password recovery session.');
   const {error}=await state.api.auth.updateUser({password});
   if(error)throw error;
   $('new-password').value='';$('confirm-password').value='';
