@@ -681,25 +681,35 @@ function recoveryScreen(session,warning=''){
  message(warning);
 }
 async function init(){
+ // Routing takes priority over existing authentication, including expired
+ // viewer sessions or a temporary failure while exchanging a recovery code.
+ if(recoveryMode)recoveryScreen(null,'Checking the password recovery session…');
  const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');
- if(!url||!key){display('setup');return}
+ if(!url||!key){
+  display('setup');
+  message('Connect this browser to the project first. Then return to the password recovery link.');
+  return;
+ }
  try{
   state.api=supabase.createClient(url,key);
   state.api.auth.onAuthStateChange((event,session)=>{
    if(event==='PASSWORD_RECOVERY'){
-    authRecoveryEvent=true;
-    recoveryScreen(session);
+    authRecoveryEvent=true;recoveryScreen(session);
    }
   });
   const {data,error}=await state.api.auth.getSession();
   if(error)throw error;
   if(recoveryMode||authRecoveryEvent){
    recoveryScreen(data.session,
-    data.session?'':'The recovery link may have expired. A valid recovery session is required to change a password.');
+    data.session?'':'No valid recovery session is available yet. A fresh recovery link may be required.');
    return;
   }
   await begin();
- }catch(err){display('login');message('Could not open account recovery: '+err.message)}
+ }catch(err){
+  if(recoveryMode||authRecoveryEvent){
+   recoveryScreen(null,'Could not verify recovery session: '+err.message);
+  }else{display('login');message('Could not sign in: '+err.message)}
+ }
 }
 $('setup-form').onsubmit=async e=>{e.preventDefault();const key=$('project-key').value.trim(),url=$('project-url').value.trim();if(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))return message('Use only a Supabase publishable or legacy anon key.');if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(url))return message('Enter a Supabase project URL.');localStorage.setItem('mayhem-url',url);localStorage.setItem('mayhem-key',key);await init()};
 $('forgot-password').onclick=()=>{
