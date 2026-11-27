@@ -4,7 +4,7 @@ const state={api:null,user:null,org:null,role:null,season:null,seasons:[],teams:
 function message(text='',success=false){$('banner').replaceChildren();if(!text)return;const p=document.createElement('p');p.className='alert'+(success?' success':'');p.textContent=text;$('banner').appendChild(p)}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function option(value,label,selected=false){return '<option value="'+escapeHtml(value)+'"'+(selected?' selected':'')+'>'+escapeHtml(label)+'</option>'}
-function display(section){for(const id of ['setup','login','workspace'])$(id).classList.toggle('hidden',id!==section);$('signout').classList.toggle('hidden',section!=='workspace')}
+function display(section){for(const id of ['setup','login','reset-request','reset-password','workspace'])$(id).classList.toggle('hidden',id!==section);$('signout').classList.toggle('hidden',section!=='workspace')}
 function requireAdmin(){if(state.role!=='admin')throw Error('Only organization administrators can make changes.')}
 function check(r){if(r.error)throw r.error;return r.data}
 function setTab(tab){state.tab=tab;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('hidden',x.id!=='tab-'+tab));document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));render()}
@@ -665,8 +665,63 @@ function enrollmentDetail(id){const e=state.enrollments.find(x=>x.id===id),t=sta
  check(await state.api.from('student_requirements').upsert(payload,{
  onConflict:state.requirementsMode?'enrollment_id,season_requirement_id':'enrollment_id,requirement_id'}))}const money=k=>{const n=Number(f.get(k));if(!Number.isFinite(n)||n<0)throw Error('Amounts must be nonnegative numbers.');return n};check(await state.api.from('student_dues').upsert({organization_id:state.org.id,enrollment_id:id,amount_due:money('amount_due'),amount_paid:money('amount_paid'),amount_waived:money('amount_waived')},{onConflict:'enrollment_id'}));check(await state.api.from('first_registrations').upsert({organization_id:state.org.id,enrollment_id:id,status:f.get('first_status'),verified_at:f.get('first_status')==='complete'?new Date().toISOString():null},{onConflict:'enrollment_id'}))})}
 async function saveForm(event,fn){event.preventDefault();if(state.role!=='admin')return message('Not authorized.');const button=event.target.querySelector('button[type=submit]');if(button)button.disabled=true;try{await fn(new FormData(event.target));closeModal();await fetchData();message('Saved successfully.',true)}catch(err){message('Save failed: '+err.message)}finally{if(button)button.disabled=false}}
-async function init(){const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');if(!url||!key){display('setup');return}try{state.api=supabase.createClient(url,key);await begin()}catch(err){display('setup');message(err.message)}}
+let recoveryMode=location.hash.includes('type=recovery')||new URLSearchParams(location.search).get('type')==='recovery';
+async function init(){
+ const url=localStorage.getItem('mayhem-url'),key=localStorage.getItem('mayhem-key');
+ if(!url||!key){display('setup');return}
+ try{
+  state.api=supabase.createClient(url,key);
+  state.api.auth.onAuthStateChange(event=>{
+   if(event==='PASSWORD_RECOVERY'){
+    recoveryMode=true;display('reset-password');message();
+   }
+  });
+  if(recoveryMode){
+   const {data,error}=await state.api.auth.getSession();
+   if(error)throw error;
+   if(data.session){display('reset-password');message();return}
+   // An exchanged recovery code may still be processing; keep the reset
+   // screen visible so the user doesn't land in the roster unexpectedly.
+   display('reset-password');message('If the recovery link has expired, request a new one.');
+   return;
+  }
+  await begin();
+ }catch(err){display('login');message('Could not open account recovery: '+err.message)}
+}
 $('setup-form').onsubmit=async e=>{e.preventDefault();const key=$('project-key').value.trim(),url=$('project-url').value.trim();if(!key.startsWith('sb_publishable_')&&!key.startsWith('eyJ'))return message('Use only a Supabase publishable or legacy anon key.');if(!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(url))return message('Enter a Supabase project URL.');localStorage.setItem('mayhem-url',url);localStorage.setItem('mayhem-key',key);await init()};
+$('forgot-password').onclick=()=>{
+ message();$('reset-email').value=$('login-email').value.trim();
+ display('reset-request');
+};
+$('reset-back').onclick=()=>{display('login');message()};
+$('reset-request-form').onsubmit=async e=>{
+ e.preventDefault();message();
+ try{
+  const email=$('reset-email').value.trim();
+  const redirectTo=new URL('./',window.location.href).origin+new URL('./',window.location.href).pathname;
+  const {error}=await state.api.auth.resetPasswordForEmail(email,{redirectTo});
+  if(error)throw error;
+  message('If this account exists, a recovery email has been sent. Open its link in this same browser.',true);
+ }catch(err){message('Could not request reset: '+err.message)}
+};
+$('reset-password-form').onsubmit=async e=>{
+ e.preventDefault();message();
+ const password=$('new-password').value;
+ if(password!==$('confirm-password').value)return message('The passwords do not match.');
+ if(password.length<12)return message('Use at least 12 characters.');
+ try{
+  const {data,error:sessionError}=await state.api.auth.getSession();
+  if(sessionError)throw sessionError;
+  if(!data.session)throw Error('Recovery session missing or expired. Request a new reset link.');
+  const {error}=await state.api.auth.updateUser({password});
+  if(error)throw error;
+  $('new-password').value='';$('confirm-password').value='';
+  recoveryMode=false;
+  history.replaceState(null,'',location.pathname);
+  await state.api.auth.signOut();
+  display('login');message('Password updated. Sign in with your new password.',true);
+ }catch(err){message('Password not changed: '+err.message)}
+};
 $('login-form').onsubmit=async e=>{e.preventDefault();message();try{const {error}=await state.api.auth.signInWithPassword({email:$('login-email').value.trim(),password:$('login-password').value});if(error)throw error;$('login-password').value='';await begin()}catch(err){message('Sign in failed: '+err.message)}};
 $('signout').onclick=async()=>{await state.api.auth.signOut();state.user=null;state.org=null;state.role=null;display('login');message()};
 $('config-button').onclick=()=>{display('setup');$('project-url').value=localStorage.getItem('mayhem-url')||'';$('project-key').value=''};
